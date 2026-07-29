@@ -8,6 +8,3 @@ wheels/
 
 # Virtual environments
 .venv
-
-/hg19.2bit
-/hg19.ncbiRefSeq.gtf.gz
