@@ -2,10 +2,10 @@
 
 import pandas as pd
 
-from check_splice import config, count_non_splice
+from check_splice import config, count_splice
 
 cfg = config.pcdh()
-cpcdh = pd.read_csv(cfg["data_dir"] / "cpcdh.csv")
+cpcdh_pair = pd.read_csv(cfg["data_dir"] / "cpcdh_pair.csv")
 for nearby_file in [
     "total_rna_seq/WT.bam.chimeric.nearby",
     "rna_seq/RNA-seq-PPdel-PPHLN1.merge.bam.chimeric.nearby",
@@ -14,20 +14,28 @@ for nearby_file in [
 ]:
     df_nearby = pd.read_csv(cfg["data_dir"] / nearby_file, header=0)
     counts = []
-    for seqname, end, strand in zip(
-        cpcdh["seqname"],
-        cpcdh["end"],
-        cpcdh["strand"],
+    for seqname1, end1, strand1, seqname2, start2, strand2 in zip(
+        cpcdh_pair["seqname1"],
+        cpcdh_pair["end1"],
+        cpcdh_pair["strand1"],
+        cpcdh_pair["seqname2"],
+        cpcdh_pair["start2"],
+        cpcdh_pair["strand2"],
     ):
-        count = count_non_splice(
+        count = count_splice(
             df_nearby,
-            splice_chrom=seqname,
-            splice_pos=end,
-            splice_strand=strand,
-            non_splice_thres=cfg["non_splice_thres"],
+            splice1_chrom=seqname1,
+            splice1_pos=end1,
+            splice1_strand=strand1,
+            splice2_chrom=seqname2,
+            splice2_pos=start2,
+            splice2_strand=strand2,
+            splice_thres=cfg["splice_thres"],
         )
         counts.append(count)
 
-    cpcdh.assign(count=counts).query("count > 0").to_csv(
-        cfg["data_dir"] / f"{nearby_file}.non_splice", index=False
-    )
+    cpcdh_pair.assign(
+        count=counts,
+        size1=lambda df: df["end1"] - df["start1"],
+        size2=lambda df: df["end2"] - df["start2"],
+    ).to_csv(cfg["data_dir"] / f"{nearby_file}.splice", index=False)
