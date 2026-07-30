@@ -64,7 +64,7 @@ def pair_cpcdh(cpcdh_file: os.PathLike) -> pd.DataFrame:
     df = (
         df
         .merge(df, how="cross", suffixes=["1", "2"])
-        .query("gene_name1 != gene_name2 and start1 < start2")
+        .query("gene_name1 != gene_name2 and end1 < start2")
         .reset_index(drop=True)
     )
 
