@@ -21,13 +21,38 @@ def get_cpcdh(gtffile: os.PathLike) -> pd.DataFrame:
         ],
     )
     df = df.query(
-        "seqname == 'chr5' and attributes.str.contains(r'PCDH[ABG][ABC]?[0-9]{1,2}') and feature=='exon' and attributes.str.contains('exon_number \"1\"') and end - start >= 1500"
+        "seqname == 'chr5' and attributes.str.contains(r'PCDH[ABG][ABC]?[0-9]{1,2}') and feature=='exon'"
     ).reset_index(drop=True)
     attributes = df["attributes"].str.split(expand=True)
     df = df.assign(
         gene_name=attributes[9].str.strip('";'),
         transcript_id=attributes[3].str.strip('";'),
-    ).drop(columns=["source", "feature", "score", "frame", "attributes"])
+        exon_number=attributes[5].str.strip('";').astype(int),
+        total_exon_number=lambda df: df.groupby("transcript_id")[
+            "exon_number"
+        ].transform(max),
+    ).drop(
+        columns=[
+            "source",
+            "feature",
+            "score",
+            "frame",
+            "attributes",
+        ]
+    )
+    df = (
+        df
+        .query(
+            "exon_number == 1 and (total_exon_number == 4 or gene_name.str.contains(r'^PCDHB'))"
+        )
+        .reset_index(drop=True)
+        .assign(
+            repeat=lambda df: df.groupby("gene_name")["gene_name"].transform("count"),
+        )
+        .query("repeat == 1 or transcript_id.str.contains(r'(?:^NM_018|NM_002)')")
+        .reset_index(drop=True)
+        .drop(columns=["exon_number", "total_exon_number", "repeat"])
+    )
     df = pd.concat(
         [
             df,
