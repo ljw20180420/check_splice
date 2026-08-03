@@ -4,92 +4,12 @@ import pandas as pd
 import pysam
 
 
-def get_cpcdh(gtffile: os.PathLike) -> pd.DataFrame:
-    df = pd.read_csv(
-        gtffile,
-        sep="\t",
-        names=[
-            "seqname",
-            "source",
-            "feature",
-            "start",
-            "end",
-            "score",
-            "strand",
-            "frame",
-            "attributes",
-        ],
-    )
-    df = df.query(
-        "seqname == 'chr5' and attributes.str.contains(r'PCDH[ABG][ABC]?[0-9]{1,2}') and feature=='exon'"
-    ).reset_index(drop=True)
-    attributes = df["attributes"].str.split(expand=True)
-    df = df.assign(
-        gene_name=attributes[9].str.strip('";'),
-        transcript_id=attributes[3].str.strip('";'),
-        exon_number=attributes[5].str.strip('";').astype(int),
-        total_exon_number=lambda df: df.groupby("transcript_id")[
-            "exon_number"
-        ].transform(max),
-    ).drop(
-        columns=[
-            "source",
-            "feature",
-            "score",
-            "frame",
-            "attributes",
-        ]
-    )
-    df = (
-        df
-        .query(
-            "exon_number == 1 and (total_exon_number == 4 or gene_name.str.contains(r'^PCDHB'))"
-        )
-        .reset_index(drop=True)
-        .assign(
-            repeat=lambda df: df.groupby("gene_name")["gene_name"].transform("count"),
-        )
-        .query("repeat == 1 or transcript_id.str.contains(r'(?:^NM_018|NM_002)')")
-        .reset_index(drop=True)
-        .drop(columns=["exon_number", "total_exon_number", "repeat"])
-    )
-    df = pd.concat(
-        [
-            df,
-            pd.DataFrame({
-                "seqname": ["chr5"] * 6,
-                "start": [
-                    140358533,
-                    140362059,
-                    140389211,
-                    140874373,
-                    140884959,
-                    140890513,
-                ],
-                "end": [
-                    140358592,
-                    140362148,
-                    140391932,
-                    140874432,
-                    140885048,
-                    140892542,
-                ],
-                "strand": ["+"] * 6,
-                "gene_name": ["ace1", "ace2", "ace3", "gce1", "gce2", "gce3"],
-                "transcript_id": ["ace1", "ace2", "ace3", "gce1", "gce2", "gce3"],
-            }),
-        ],
-    ).sort_values(by=["start", "end"], ignore_index=True)
-
-    return df
-
-
 def pair_cpcdh(cpcdh_file: os.PathLike) -> pd.DataFrame:
     df = pd.read_csv(cpcdh_file)
     df = (
         df
         .merge(df, how="cross", suffixes=["1", "2"])
-        .query("gene_name1 != gene_name2 and end1 < start2")
+        .query("name1 != name2 and end1 < start2")
         .reset_index(drop=True)
     )
 
