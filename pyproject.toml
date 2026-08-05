@@ -11,6 +11,7 @@ dependencies = [
     "ipykernel>=7.3.0",
     "pandas>=3.0.5",
     "plotnine>=0.15.7",
+    "py2bit>=1.0.1",
     "pysam>=0.24.0",
 ]
 
