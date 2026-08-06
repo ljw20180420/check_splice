@@ -18,7 +18,7 @@ filter_ribosome() {
     local R2=$2
     local output=$3
 
-    bowtie2 --very-sensitive-local --no-unal -I 1 -X 1000 -p 16 \
+    bowtie2 --no-unal -I 1 -X 1000 -p 16 \
         -x rdnaModel/rdnaModel \
         -1 ${R1} -2 ${R2} \
         --un-conc-gz ${output}.rDNAremoved.fq.gz \
