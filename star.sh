@@ -28,14 +28,28 @@ filter_ribosome() {
 
 pro_filter_ribosome() {
     local data_dir="${root_dir}/pro_seq/MPP8"
+    mkdir -p ${data_dir}/non_rDNA
     for clone in "D22" "DF15" "DF17" "WT6"
     do
         for rep in "rep1" "rep2"
         do
+            if [[ -s "${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz" ]]
+            then
+                continue
+            fi
+
             filter_ribosome \
                 "${data_dir}/${clone}_${rep}_R1.fq.gz" \
                 "${data_dir}/${clone}_${rep}_R2.fq.gz" \
                 "${data_dir}/${clone}_${rep}"
+
+            mv "${data_dir}/${clone}_${rep}.rDNAremoved.fq.1.gz" \
+                ${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz
+            mv "${data_dir}/${clone}_${rep}.rDNAremoved.fq.2.gz" \
+                ${data_dir}/non_rDNA/${clone}_${rep}_R2.fq.gz
+            mv "${data_dir}/${clone}_${rep}.rDNA.bam" \
+                "${data_dir}/${clone}_${rep}.rDNA.txt" \
+                "${data_dir}/non_rDNA/"
         done
     done
 
