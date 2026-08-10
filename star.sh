@@ -26,34 +26,42 @@ filter_ribosome() {
     samtools view -S -b -o ${output}.rDNA.bam - 
 }
 
-pro_filter_ribosome() {
-    local data_dir="${root_dir}/pro_seq/MPP8"
+move_filter_ribosome() {
+    local data_dir=$1
+    local clone=$2
+    local rep=$3
+
     mkdir -p ${data_dir}/non_rDNA
-    for clone in "D22" "DF15" "DF17" "WT6"
-    do
-        for rep in "rep1" "rep2"
-        do
-            if [[ -s "${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz" ]]
-            then
-                continue
-            fi
+    mv "${data_dir}/${clone}_${rep}.rDNAremoved.fq.1.gz" \
+        ${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz
+    mv "${data_dir}/${clone}_${rep}.rDNAremoved.fq.2.gz" \
+        ${data_dir}/non_rDNA/${clone}_${rep}_R2.fq.gz
+    mv "${data_dir}/${clone}_${rep}.rDNA.bam" \
+        "${data_dir}/${clone}_${rep}.rDNA.txt" \
+        "${data_dir}/non_rDNA/"
+}
 
-            filter_ribosome \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz" \
-                "${data_dir}/${clone}_${rep}"
+pro_filter_ribosome() {
+    # local data_dir="${root_dir}/pro_seq/MPP8"
+    # for clone in "D22" "DF15" "DF17" "WT6"
+    # do
+    #     for rep in "rep1" "rep2"
+    #     do
+    #         if [[ -s "${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz" ]]
+    #         then
+    #             continue
+    #         fi
 
-            mv "${data_dir}/${clone}_${rep}.rDNAremoved.fq.1.gz" \
-                ${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz
-            mv "${data_dir}/${clone}_${rep}.rDNAremoved.fq.2.gz" \
-                ${data_dir}/non_rDNA/${clone}_${rep}_R2.fq.gz
-            mv "${data_dir}/${clone}_${rep}.rDNA.bam" \
-                "${data_dir}/${clone}_${rep}.rDNA.txt" \
-                "${data_dir}/non_rDNA/"
-        done
-    done
+    #         filter_ribosome \
+    #             "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+    #             "${data_dir}/${clone}_${rep}_R2.fq.gz" \
+    #             "${data_dir}/${clone}_${rep}"
 
-    local data_dir="${root_dir}/pro_seq/NP229"
+    #         move_filter_ribosome ${data_dir} ${clone} ${rep}
+    #     done
+    # done
+
+    local data_dir="${root_dir}/pro_seq/NP220"
     for clone in "D173" "DCF98" "WT6"
     do
         for rep in "rep1" "rep2"
@@ -62,32 +70,38 @@ pro_filter_ribosome() {
                 "${data_dir}/${clone}_${rep}_R1.fq.gz" \
                 "${data_dir}/${clone}_${rep}_R2.fq.gz" \
                 "${data_dir}/${clone}_${rep}"
+
+            move_filter_ribosome ${data_dir} ${clone} ${rep}
         done
     done
 
-    local data_dir="${root_dir}/pro_seq/PPHLN1"
-    for clone in "D169" "D221" "WT6"
-    do
-        for rep in "rep1" "rep2"
-        do
-            filter_ribosome \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz" \
-                "${data_dir}/${clone}_${rep}"
-        done
-    done
+    # local data_dir="${root_dir}/pro_seq/PPHLN1"
+    # for clone in "D169" "D221" "WT6"
+    # do
+    #     for rep in "rep1" "rep2"
+    #     do
+    #         filter_ribosome \
+    #             "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+    #             "${data_dir}/${clone}_${rep}_R2.fq.gz" \
+    #             "${data_dir}/${clone}_${rep}"
 
-    local data_dir="${root_dir}/pro_seq/TASOR"
-    for clone in "D5" "DF4" "WT6"
-    do
-        for rep in "rep1" "rep2"
-        do
-            filter_ribosome \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz" \
-                "${data_dir}/${clone}_${rep}"
-        done
-    done
+    #         move_filter_ribosome ${data_dir} ${clone} ${rep}
+    #     done
+    # done
+
+    # local data_dir="${root_dir}/pro_seq/TASOR"
+    # for clone in "D5" "DF4" "WT6"
+    # do
+    #     for rep in "rep1" "rep2"
+    #     do
+    #         filter_ribosome \
+    #             "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+    #             "${data_dir}/${clone}_${rep}_R2.fq.gz" \
+    #             "${data_dir}/${clone}_${rep}"
+
+    #         move_filter_ribosome ${data_dir} ${clone} ${rep}
+    #     done
+    # done
 }
 
 get_common_prefix() {
