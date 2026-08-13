@@ -214,25 +214,6 @@ clip_filter_ribosome() {
     done
 }
 
-get_common_prefix() {
-    # If no arguments provided, exit
-    [ $# -eq 0 ] && return
-
-    local prefix="$1"
-    shift
-
-    # Compare prefix against all other arguments
-    for item in "$@"; do
-        # Truncate prefix until it matches the start of the item
-        while [[ "$item" != "$prefix"* ]]; do
-            prefix="${prefix%?}"
-            [ -z "$prefix" ] && break 2
-        done
-    done
-
-    echo "$prefix"
-}
-
 star_map() {
     local prefix=$1
     shift
@@ -245,101 +226,152 @@ star_map() {
         --outFileNamePrefix ${prefix} \
         --outSAMtype BAM SortedByCoordinate \
         --outSAMstrandField intronMotif \
+        --outFilterIntronMotifs RemoveNoncanonical \
         --sjdbGTFfile ${root_dir}/hg19.ncbiRefSeq.gtf
 }
 
-total_PPHLN1_map() {
-    for clone in "PPD169" "PPD221" "WT6"
+total_map() {
+    local exp="total"
+
+    local protein="PPHLN1"
+    local data_dir="${root_dir}/total_rna_seq/${protein}"
+
+    for clone in "D169" "D221" "WT6"
     do
         for rep in "rep1" "rep2" "rep3"
         do
-            star_map "${root_dir}/bam/total_PPHLN1_${clone}_${rep}" \
-                "${root_dir}/total_rna_seq/PPHLN1/${clone}_Total_${rep}.R1.raw.fastq.gz" \
-                "${root_dir}/total_rna_seq/PPHLN1/${clone}_Total_${rep}.R2.raw.fastq.gz"
+            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
+                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+                "${data_dir}/${clone}_${rep}_R2.fq.gz"
         done
     done
 }
 
-pro_TASOR_map() {
-    for clone in "TA-D5" "TA-DF4" "WT6"
+pro_map() {
+    local exp="pro"
+
+    local protein="MPP8"
+    local data_dir="${root_dir}/pro_seq/${protein}/non_rDNA"
+    for clone in "D22" "DF15" "DF17" "WT6"
     do
         for rep in "rep1" "rep2"
         do
-            star_map "${root_dir}/bam/pro_TASOR_${clone}_${rep}" \
-                "${root_dir}/pro_seq/TASOR/${clone}_${rep}_R1.fastq.gz" \
-                "${root_dir}/pro_seq/TASOR/${clone}_${rep}_R2.fastq.gz"
+            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
+                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+                "${data_dir}/${clone}_${rep}_R2.fq.gz"
         done
     done
-}
 
-pro_MPP8_map() {
-    for clone in "M8-D22" "M8-DF15" "M8-DF17" "WT6"
+    local protein="NP220"
+    local data_dir="${root_dir}/pro_seq/${protein}/non_rDNA"
+    for clone in "D173" "DCF98" "WT6"
     do
         for rep in "rep1" "rep2"
         do
-            star_map "${root_dir}/bam/pro_MPP8_${clone}_${rep}" \
-                "${root_dir}/pro_seq/MPP8/${clone}_${rep}_R1.fastq.gz" \
-                "${root_dir}/pro_seq/MPP8/${clone}_${rep}_R2.fastq.gz"
+            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
+                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+                "${data_dir}/${clone}_${rep}_R2.fq.gz"
         done
     done
-}
 
-pro_NP220_map() {
-    for clone in "NP220-D173" "NP220-DCF98" "WT6"
+    local protein="PPHLN1"
+    local data_dir="${root_dir}/pro_seq/${protein}/non_rDNA"
+    for clone in "D169" "D221" "WT6"
     do
         for rep in "rep1" "rep2"
         do
-            star_map "${root_dir}/bam/pro_NP220_${clone}_${rep}" \
-                "${root_dir}/pro_seq/NP220/${clone}_${rep}_R1.fastq.gz" \
-                "${root_dir}/pro_seq/NP220/${clone}_${rep}_R2.fastq.gz"
+            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
+                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+                "${data_dir}/${clone}_${rep}_R2.fq.gz"
         done
     done
-}
 
-clip_WT_map() {
-    for clone in "WT"
+    local protein="TASOR"
+    local data_dir="${root_dir}/pro_seq/${protein}/non_rDNA"
+    for clone in "D5" "DF4" "WT6"
     do
         for rep in "rep1" "rep2"
         do
-            star_map "${root_dir}/bam/clip_WT_${clone}_${rep}" \
-                "${root_dir}/clip_seq/WT/${clone}_${rep}_R1.fq.gz" \
-                "${root_dir}/clip_seq/WT/${clone}_${rep}_R2.fq.gz"
+            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
+                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+                "${data_dir}/${clone}_${rep}_R2.fq.gz"
         done
     done
 }
 
-clip_MPP8_map() {
+clip_map() {
+    local exp="clip"
+
+    local protein="MPP8"
+    local data_dir="${root_dir}/clip_seq/${protein}/non_rDNA"
     for clone in "M4" "M5" "M15"
     do
         for rep in "rep1" "rep2"
         do
-            star_map "${root_dir}/bam/clip_MPP8_${clone}_${rep}" \
-                "${root_dir}/clip_seq/MPP8/${clone}_${rep}_R1.fq.gz" \
-                "${root_dir}/clip_seq/MPP8/${clone}_${rep}_R2.fq.gz"
+            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
+                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+                "${data_dir}/${clone}_${rep}_R2.fq.gz"
         done
     done
-}
 
-clip_TASOR_map() {
-    for clone in "TA242"
+    local protein="NP220"
+    local data_dir="${root_dir}/clip_seq/${protein}/non_rDNA"
+    for clone in "C6"
     do
-        for rep in "rep1" "rep2"
+        for rep in "1-High1" "1-High2" "1-Low1" "1-Low2" "2-High1" "2-High2" "2-Low1" "2-Low2"
         do
-            star_map "${root_dir}/bam/clip_TASOR_${clone}_${rep}" \
-                "${root_dir}/clip_seq/TASOR/${clone}_${rep}.R1.raw.fastq.gz" \
-                "${root_dir}/clip_seq/TASOR/${clone}_${rep}.R2.raw.fastq.gz"
+            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
+                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+                "${data_dir}/${clone}_${rep}_R2.fq.gz"
         done
     done
-}
 
-clip_PPHLN1_map() {
+    local protein="NP220"
+    local data_dir="${root_dir}/clip_seq/${protein}/non_rDNA"
+    for clone in "N77"
+    do
+        for rep in "1-Large-rep1" "1-Large-rep2" "1-Middle-rep1" "1-Middle-rep2" "1-Small-rep1" "1-Small-rep2" \
+            "2-Large-rep1" "2-Large-rep2" "2-Middle-rep1" "2-Middle-rep2" "2-Small-rep1" "2-Small-rep2"
+        do
+            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
+                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+                "${data_dir}/${clone}_${rep}_R2.fq.gz"
+        done
+    done
+
+    local protein="PPHLN1"
+    local data_dir="${root_dir}/clip_seq/${protein}/non_rDNA"
     for clone in "PP98" "PP304"
     do
         for rep in "rep1" "rep2"
         do
-            star_map "${root_dir}/bam/clip_PPHLN1_${clone}_${rep}" \
-                "${root_dir}/clip_seq/PPHLN1/${clone}_${rep}.R1.raw.fastq.gz" \
-                "${root_dir}/clip_seq/PPHLN1/${clone}_${rep}.R2.raw.fastq.gz"
+            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
+                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+                "${data_dir}/${clone}_${rep}_R2.fq.gz"
+        done
+    done
+
+    local protein="TASOR"
+    local data_dir="${root_dir}/clip_seq/${protein}/non_rDNA"
+    for clone in "TA242"
+    do
+        for rep in "rep1" "rep2"
+        do
+            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
+                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+                "${data_dir}/${clone}_${rep}_R2.fq.gz"
+        done
+    done
+
+    local protein="WT"
+    local data_dir="${root_dir}/clip_seq/${protein}/non_rDNA"
+    for clone in "WT"
+    do
+        for rep in "rep1" "rep2"
+        do
+            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
+                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+                "${data_dir}/${clone}_${rep}_R2.fq.gz"
         done
     done
 }
@@ -347,4 +379,7 @@ clip_PPHLN1_map() {
 star_index="/home/ljw/.local/share/genomes/GRCh37/index/star"
 root_dir="/home/ljw/sdc1/hush"
 # pro_filter_ribosome
-clip_filter_ribosome
+# clip_filter_ribosome
+total_map
+pro_map
+clip_map
