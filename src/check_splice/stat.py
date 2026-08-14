@@ -74,23 +74,46 @@ def around_tss(
     read_starts = (
         df
         .query("not is_shadow and is_read1 and strand == '+'")
-        .reset_index(drop=True)["read_start"]
+        .reset_index(drop=True)[["exp", "clone", "read_start"]]
         .value_counts()
-    )
-    arr = np.stack(
-        [
-            read_starts
-            .reindex(range(tss - tss_extend, tss + tss_extend + 1), fill_value=0)
-            .sort_index()
-            .to_numpy()
-            for tss in tsses["start"]
-        ],
-        axis=0,
+        .reset_index()
     )
 
-    fig, ax = _heatmap(mat=arr, extent=[-tss_extend, tss_extend, 0, len(tsses) - 1])
+    exps = read_starts["exp"].drop_duplicates().tolist()
+    clones = read_starts["clone"].drop_duplicates().tolist()
+
+    df_arounds = []
+    for tss, name in zip(tsses["start"], tsses["name"]):
+        df_arounds.append(
+            read_starts
+            .assign(relative=lambda df, tss=tss: df["read_start"] - tss)
+            .query("relative >= -@tss_extend and relative <= @tss_extend")
+            .assign(exon=name)
+        )
+    df_around = (
+        pd
+        .concat(df_arounds, ignore_index=True)
+        .pivot_table(values="count", index=["exp", "clone", "exon"], columns="relative")
+        .reindex(
+            index=pd.MultiIndex.from_product(
+                [
+                    exps,
+                    clones,
+                    tsses["name"].tolist(),
+                ],
+                names=["exp", "clone", "exon"],
+            ),
+            columns=range(-tss_extend, tss_extend + 1),
+            fill_value=0,
+        )
+        .reset_index()
+    )
+
+    fig, ax = _heatmap(
+        mat=df_around.to_numpy(), extent=[-tss_extend, tss_extend, 0, len(tsses) - 1]
+    )
     ax.set_xlabel("position")
     ax.set_ylabel("exon")
-    ax.set_yticklabels(labels=tsses["name"].tolist())
+    ax.set_yticklabels(labels=df.index.map(lambda tup: "_".join(str(e) for e in tup)))
 
     return fig, ax
