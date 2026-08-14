@@ -1,7 +1,7 @@
 import os
 import pathlib
 
-from .check import all_intervals
+from .check import ReadStart, all_intervals
 from .sam import filter_reads, parse_block
 
 
@@ -34,6 +34,7 @@ def process_locus(
         info = introns(info, blocks, "connect")
         info = intron_starts(info, blocks, "cover")
         info = intron_ends(info, blocks, "cover")
+        info = ReadStart.get(info, blocks, read.is_read1)
 
         yield info
 
@@ -41,10 +42,12 @@ def process_locus(
             info_shadow = info.copy()
             info_shadow["is_shadow"] = True
             read.is_read1 = not read.is_read1
+
             blocks = list(parse_block(read))
             info_shadow = introns(info_shadow, blocks, "connect")
             info_shadow = intron_starts(info_shadow, blocks, "cover")
             info_shadow = intron_ends(info_shadow, blocks, "cover")
+            info_shadow = ReadStart.get(info_shadow, blocks, read.is_read1)
 
             yield info_shadow
 

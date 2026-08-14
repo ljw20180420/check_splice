@@ -3,12 +3,33 @@ import os
 import pandas as pd
 
 
-def map_start(blocks: list[tuple[str, int, int, str]]) -> int:
-    _, block_start, block_end, block_strand = blocks[0]
-    if block_strand == "+":
-        return block_start
-    else:
-        return block_end
+class ReadStart:
+    def __init__(self) -> None:
+        pass
+
+    def seq_start(cls, blocks: list[tuple[str, int, int, str]]) -> int:
+        _, block_start, block_end, block_strand = blocks[0]
+        if block_strand == "+":
+            return block_start
+        else:
+            return block_end
+
+    def seq_end(cls, blocks: list[tuple[str, int, int, str]]) -> int:
+        _, block_start, block_end, block_strand = blocks[-1]
+        if block_strand == "+":
+            return block_end
+        else:
+            return block_start
+
+    def get(
+        cls, info: dict, blocks: list[tuple[str, int, int, str]], is_read1: bool
+    ) -> dict:
+        if is_read1:
+            info["read_start"] = cls.seq_start(blocks)
+        else:
+            info["read_start"] = cls.seq_end(blocks)
+
+        return info
 
 
 class Interval:
@@ -91,7 +112,7 @@ def all_intervals(cpcdh_file: os.PathLike, cover_threshold: int):
             start - cover_threshold,
             start + cover_threshold,
             strand,
-            f"{name}_start",
+            f"start_{name}",
         )
         for chrom, start, end, strand, name in df.query(type="intron")[
             ["chrom", "start", "end", "strand", "name"]
@@ -103,7 +124,7 @@ def all_intervals(cpcdh_file: os.PathLike, cover_threshold: int):
             end - cover_threshold,
             end + cover_threshold,
             strand,
-            f"{name}_end",
+            f"end_{name}",
         )
         for chrom, start, end, strand, name in df.query(type="intron")[
             ["chrom", "start", "end", "strand", "name"]
