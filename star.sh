@@ -230,6 +230,22 @@ star_map() {
         --sjdbGTFfile ${root_dir}/hg19.ncbiRefSeq.gtf
 }
 
+clear_map() {
+    local exp=$1
+    local protein=$2
+    local clone=$3
+    local rep=$4
+    
+    mv "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}Aligned.sortedByCoord.out.bam" \
+        "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+    rm -r \
+        "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}_STARgenome" \
+        "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}Log.out" \
+        "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}Log.progress.out" \
+        "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}Log.final.out" \
+        "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}SJ.out.tab"
+}
+
 total_map() {
     local exp="total"
 
@@ -240,9 +256,13 @@ total_map() {
     do
         for rep in "rep1" "rep2" "rep3"
         do
+            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+
             star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
                 "${data_dir}/${clone}_${rep}_R1.fq.gz" \
                 "${data_dir}/${clone}_${rep}_R2.fq.gz"
+
+            clear_map ${exp} ${protein} ${clone} ${rep}
         done
     done
 }
@@ -256,9 +276,13 @@ pro_map() {
     do
         for rep in "rep1" "rep2"
         do
+            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+
             star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
                 "${data_dir}/${clone}_${rep}_R1.fq.gz" \
                 "${data_dir}/${clone}_${rep}_R2.fq.gz"
+
+            clear_map ${exp} ${protein} ${clone} ${rep}
         done
     done
 
@@ -268,9 +292,13 @@ pro_map() {
     do
         for rep in "rep1" "rep2"
         do
+            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+
             star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
                 "${data_dir}/${clone}_${rep}_R1.fq.gz" \
                 "${data_dir}/${clone}_${rep}_R2.fq.gz"
+
+            clear_map ${exp} ${protein} ${clone} ${rep}
         done
     done
 
@@ -280,9 +308,13 @@ pro_map() {
     do
         for rep in "rep1" "rep2"
         do
+            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+
             star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
                 "${data_dir}/${clone}_${rep}_R1.fq.gz" \
                 "${data_dir}/${clone}_${rep}_R2.fq.gz"
+
+            clear_map ${exp} ${protein} ${clone} ${rep}
         done
     done
 
@@ -292,9 +324,13 @@ pro_map() {
     do
         for rep in "rep1" "rep2"
         do
+            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+
             star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
                 "${data_dir}/${clone}_${rep}_R1.fq.gz" \
                 "${data_dir}/${clone}_${rep}_R2.fq.gz"
+
+            clear_map ${exp} ${protein} ${clone} ${rep}
         done
     done
 }
@@ -308,9 +344,13 @@ clip_map() {
     do
         for rep in "rep1" "rep2"
         do
+            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+
             star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
                 "${data_dir}/${clone}_${rep}_R1.fq.gz" \
                 "${data_dir}/${clone}_${rep}_R2.fq.gz"
+
+            clear_map ${exp} ${protein} ${clone} ${rep}
         done
     done
 
@@ -320,9 +360,13 @@ clip_map() {
     do
         for rep in "1-High1" "1-High2" "1-Low1" "1-Low2" "2-High1" "2-High2" "2-Low1" "2-Low2"
         do
+            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+
             star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
                 "${data_dir}/${clone}_${rep}_R1.fq.gz" \
                 "${data_dir}/${clone}_${rep}_R2.fq.gz"
+
+            clear_map ${exp} ${protein} ${clone} ${rep}
         done
     done
 
@@ -333,9 +377,13 @@ clip_map() {
         for rep in "1-Large-rep1" "1-Large-rep2" "1-Middle-rep1" "1-Middle-rep2" "1-Small-rep1" "1-Small-rep2" \
             "2-Large-rep1" "2-Large-rep2" "2-Middle-rep1" "2-Middle-rep2" "2-Small-rep1" "2-Small-rep2"
         do
+            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+
             star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
                 "${data_dir}/${clone}_${rep}_R1.fq.gz" \
                 "${data_dir}/${clone}_${rep}_R2.fq.gz"
+
+            clear_map ${exp} ${protein} ${clone} ${rep}
         done
     done
 
@@ -345,9 +393,13 @@ clip_map() {
     do
         for rep in "rep1" "rep2"
         do
+            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+
             star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
                 "${data_dir}/${clone}_${rep}_R1.fq.gz" \
                 "${data_dir}/${clone}_${rep}_R2.fq.gz"
+
+            clear_map ${exp} ${protein} ${clone} ${rep}
         done
     done
 
@@ -357,9 +409,13 @@ clip_map() {
     do
         for rep in "rep1" "rep2"
         do
+            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+
             star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
                 "${data_dir}/${clone}_${rep}_R1.fq.gz" \
                 "${data_dir}/${clone}_${rep}_R2.fq.gz"
+
+            clear_map ${exp} ${protein} ${clone} ${rep}
         done
     done
 
@@ -369,9 +425,13 @@ clip_map() {
     do
         for rep in "rep1" "rep2"
         do
+            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+
             star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
                 "${data_dir}/${clone}_${rep}_R1.fq.gz" \
                 "${data_dir}/${clone}_${rep}_R2.fq.gz"
+
+            clear_map ${exp} ${protein} ${clone} ${rep}
         done
     done
 }

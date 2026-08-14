@@ -3,7 +3,7 @@ import os
 import pandas as pd
 
 
-def get_cpcdh(gtffile: os.PathLike) -> pd.DataFrame:
+def get_cpcdh_exon(gtffile: os.PathLike) -> pd.DataFrame:
     df = pd.read_csv(
         gtffile,
         sep="\t",
@@ -97,21 +97,90 @@ def get_cpcdh(gtffile: os.PathLike) -> pd.DataFrame:
         140885048,
         140892542,
     ]
-    df = pd.concat(
-        [
-            df,
-            pd.DataFrame({
-                "chrom": ["chr5"] * 6,
-                "start": starts,
-                "end": ends,
-                "name": ["ace1", "ace2", "ace3", "gce1", "gce2", "gce3"],
-                "score": ["."] * 6,
-                "strand": ["+"] * 6,
-                "CDS_start": starts,
-                "CDS_end": ends,
-                "transcript_id": ["ace1", "ace2", "ace3", "gce1", "gce2", "gce3"],
-            }),
-        ],
-    ).sort_values(by=["start", "end"], ignore_index=True)
+    df = (
+        pd
+        .concat(
+            [
+                df,
+                pd.DataFrame({
+                    "chrom": ["chr5"] * 6,
+                    "start": starts,
+                    "end": ends,
+                    "name": ["ace1", "ace2", "ace3", "gce1", "gce2", "gce3"],
+                    "score": ["."] * 6,
+                    "strand": ["+"] * 6,
+                    "CDS_start": starts,
+                    "CDS_end": ends,
+                    "transcript_id": ["ace1", "ace2", "ace3", "gce1", "gce2", "gce3"],
+                }),
+            ],
+        )
+        .astype({
+            "start": "int64",
+            "end": "int64",
+            "CDS_start": "int64",
+            "CDS_end": "int64",
+        })
+        .sort_values(by=["start", "end"], ignore_index=True)
+    )
 
     return df
+
+
+def get_cpcdh_intron(df: pd.DataFrame) -> pd.DataFrame:
+    intron_names = []
+    intron_starts = []
+    intron_ends = []
+
+    intron_end = df.query("name == 'ace1'")["start"].item()
+    for name, intron_start in df.query("name.str.startswith('PCDHA')")[
+        ["name", "end"]
+    ].itertuples(index=False):
+        intron_names.append(f"{name}_ace1")
+        intron_starts.append(intron_start)
+        intron_ends.append(intron_end)
+
+    intron_names.append("ace1_ace2")
+    intron_starts.append(df.query("name == 'ace1'")["end"].item())
+    intron_ends.append(df.query("name == 'ace2'")["start"].item())
+
+    intron_names.append("ace2_ace3")
+    intron_starts.append(df.query("name == 'ace2'")["end"].item())
+    intron_ends.append(df.query("name == 'ace3'")["start"].item())
+
+    intron_end = df.query("name == 'gce1'")["start"].item()
+    for name, intron_start in df.query("name.str.startswith('PCDHG')")[
+        ["name", "end"]
+    ].itertuples(index=False):
+        intron_names.append(f"{name}_gce1")
+        intron_starts.append(intron_start)
+        intron_ends.append(intron_end)
+
+    intron_names.append("gce1_gce2")
+    intron_starts.append(df.query("name == 'gce1'")["end"].item())
+    intron_ends.append(df.query("name == 'gce2'")["start"].item())
+
+    intron_names.append("gce2_gce3")
+    intron_starts.append(df.query("name == 'gce2'")["end"].item())
+    intron_ends.append(df.query("name == 'gce3'")["start"].item())
+
+    df["type"] = "exon"
+    df_intron = pd.DataFrame({
+        "chrom": "chr5",
+        "start": intron_starts,
+        "end": intron_ends,
+        "name": intron_names,
+        "score": ".",
+        "strand": "+",
+        "CDS_start": ".",
+        "CDS_end": ".",
+        "transcript_id": ".",
+        "type": "intron",
+    })
+
+    return (
+        pd
+        .concat([df, df_intron], ignore_index=True)
+        .astype({"start": "int64", "end": "int64"})
+        .sort_values(by=["type", "start", "end"], ignore_index=True)
+    )
