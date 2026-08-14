@@ -227,7 +227,7 @@ star_map() {
         --outSAMtype BAM SortedByCoordinate \
         --outSAMstrandField intronMotif \
         --outFilterIntronMotifs RemoveNoncanonical \
-        --sjdbGTFfile ${root_dir}/hg19.ncbiRefSeq.gtf
+        --sjdbGTFfile ${root_dir}/data/hg19.ncbiRefSeq.gtf
 }
 
 clear_map() {
