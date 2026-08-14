@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 
-from check_splice import config, cpcdh
+from check_splice import config, pcbs
 
 cfg = config.pcdh()
-df = cpcdh.get_cpcdh_exon(cfg["data_dir"] / "hg19.ncbiRefSeq.gtf.gz")
-df = cpcdh.get_cpcdh_intron(df)
-df.to_csv(cfg["data_dir"] / "cpcdh.csv", index=False)
+df = pcbs.get_pCBS(
+    shift_file=cfg["data_dir"] / "data" / "pCBS_shift.csv",
+    cpcdh_file=cfg["data_dir"] / "result" / "cpcdh.csv",
+)
+df.to_csv(cfg["data_dir"] / "result" / "pCBS.bed", sep="\t", header=False, index=False)
