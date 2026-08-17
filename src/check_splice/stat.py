@@ -1,9 +1,7 @@
 import os
 
-import numpy as np
+import matplotlib.pyplot as plt
 import pandas as pd
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
 
 from .draw import _heatmap
 
@@ -63,8 +61,12 @@ def splice(result_file: os.PathLike, cpcdh_file: os.PathLike) -> pd.DataFrame:
 
 
 def around_tss(
-    result_file: os.PathLike, cpcdh_file: os.PathLike, tss_extend: int
-) -> tuple[Figure, Axes]:
+    cfg: dict,
+) -> None:
+    result_file = cfg["data_dir"] / "result" / "reads.jsonl"
+    cpcdh_file = cfg["data_dir"] / "cpcdh.csv"
+    tss_extend = cfg["tss_extend"]
+
     df_cpcdh = pd.read_csv(cpcdh_file, header=0)
     tsses = df_cpcdh.query("type='exon' and name.str.startswith('PCDH')")[
         ["start", "name"]
@@ -106,14 +108,16 @@ def around_tss(
             columns=range(-tss_extend, tss_extend + 1),
             fill_value=0,
         )
-        .reset_index()
     )
 
-    fig, ax = _heatmap(
-        mat=df_around.to_numpy(), extent=[-tss_extend, tss_extend, 0, len(tsses) - 1]
-    )
-    ax.set_xlabel("position")
-    ax.set_ylabel("exon")
-    ax.set_yticklabels(labels=df.index.map(lambda tup: "_".join(str(e) for e in tup)))
+    for exp, clone in zip(exps, clones):
+        df_slice = df_around.loc[pd.IndexSlice[exp, clone, :], :]
 
-    return fig, ax
+        fig, ax = _heatmap(
+            mat=df_slice.to_numpy(), extent=[-tss_extend, tss_extend, 0, len(tsses) - 1]
+        )
+        ax.set_xlabel("position")
+        ax.set_ylabel("exon")
+        ax.set_yticklabels(labels=df_slice.index)
+        fig.savefig(cfg["data_dir"] / "result" / f"{exp}_{clone}_around_tss.png")
+        plt.close(fig)
