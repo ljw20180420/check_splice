@@ -24,192 +24,58 @@ index_ribosome() {
 }
 
 filter_ribosome() {
-    local R1=$1
-    local R2=$2
-    local output=$3
-
-    bowtie2 --no-unal -I 1 -X 1000 -p 16 \
-        -x rdnaModel/rdnaModel \
-        -1 ${R1} -2 ${R2} \
-        --un-conc-gz ${output}.rDNAremoved.fq.gz \
-        2> ${output}.rDNA.txt |
-    samtools view -S -b -o ${output}.rDNA.bam - 
-}
-
-move_filter_ribosome() {
-    local data_dir=$1
+    local protein_dir=$1
     local clone=$2
     local rep=$3
 
-    mkdir -p ${data_dir}/non_rDNA
-    mv "${data_dir}/${clone}_${rep}.rDNAremoved.fq.1.gz" \
-        ${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz
-    mv "${data_dir}/${clone}_${rep}.rDNAremoved.fq.2.gz" \
-        ${data_dir}/non_rDNA/${clone}_${rep}_R2.fq.gz
-    mv "${data_dir}/${clone}_${rep}.rDNA.bam" \
-        "${data_dir}/${clone}_${rep}.rDNA.txt" \
-        "${data_dir}/non_rDNA/"
+    bowtie2 --no-unal -I 1 -X 1000 -p 16 \
+        -x rdnaModel/rdnaModel \
+        -1 ${protein_dir}/${clone}_${rep}_R1.fq.gz \
+        -2 ${protein_dir}/${clone}_${rep}_R2.fq.gz \
+        --un-conc-gz ${protein_dir}/${clone}_${rep}.rDNAremoved.fq.gz \
+        2> ${protein_dir}/${clone}_${rep}.rDNA.txt |
+    samtools view -S -b -o ${protein_dir}/${clone}_${rep}.rDNA.bam -
+
+    mkdir -p "${protein_dir}/non_rDNA"
+    mv "${protein_dir}/${clone}_${rep}.rDNAremoved.fq.1.gz" \
+        "${protein_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz"
+    mv "${protein_dir}/${clone}_${rep}.rDNAremoved.fq.2.gz" \
+        "${protein_dir}/non_rDNA/${clone}_${rep}_R2.fq.gz"
+    mv "${protein_dir}/${clone}_${rep}.rDNA.bam" \
+        "${protein_dir}/${clone}_${rep}.rDNA.txt" \
+        "${protein_dir}/non_rDNA/"
 }
 
-pro_filter_ribosome() {
-    local data_dir="${root_dir}/pro_seq/MPP8"
-    for clone in "D22" "DF15" "DF17" "WT6"
+filter_ribosome_all() {
+    local exp
+    for exp in pro clip
     do
-        for rep in "rep1" "rep2"
+        local protein
+        for protein in $(ls ${root_dir}/${exp}_seq)
         do
-            check_existence "${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz"
+            if [[ ! -d "${root_dir}/${exp}_seq/${protein}" ]]
+            then
+                continue
+            fi
+            for R1 in $(ls ${root_dir}/${exp}_seq/${protein}/*_R1.fq.gz)
+            do
+                local base=${R1##*/}
+                local stem=${base%_R1.fq.gz}
+                local clone rep
+                IFS="_" read clone rep <<<${stem}
 
-            filter_ribosome \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz" \
-                "${data_dir}/${clone}_${rep}"
+                if [[ -s "${root_dir}/${exp}_seq/${protein}/non_rDNA/${clone}_${rep}_R1.fq.gz" ]]
+                then
+                    echo "${root_dir}/${exp}_seq/${protein}/non_rDNA/${clone}_${rep} exists"
+                    continue
+                fi
+                echo "process ${root_dir}/${exp}_seq/${protein}/non_rDNA/${clone}_${rep}"
 
-            move_filter_ribosome ${data_dir} ${clone} ${rep}
-        done
-    done
-
-    local data_dir="${root_dir}/pro_seq/NP220"
-    for clone in "D173" "DCF98" "WT6"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz"
-
-            filter_ribosome \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz" \
-                "${data_dir}/${clone}_${rep}"
-
-            move_filter_ribosome ${data_dir} ${clone} ${rep}
-        done
-    done
-
-    local data_dir="${root_dir}/pro_seq/PPHLN1"
-    for clone in "D169" "D221" "WT6"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz"
-
-            filter_ribosome \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz" \
-                "${data_dir}/${clone}_${rep}"
-
-            move_filter_ribosome ${data_dir} ${clone} ${rep}
-        done
-    done
-
-    local data_dir="${root_dir}/pro_seq/TASOR"
-    for clone in "D5" "DF4" "WT6"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz"
-
-            filter_ribosome \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz" \
-                "${data_dir}/${clone}_${rep}"
-
-            move_filter_ribosome ${data_dir} ${clone} ${rep}
-        done
-    done
-}
-
-clip_filter_ribosome() {
-    local data_dir="${root_dir}/clip_seq/MPP8"
-    for clone in "M4" "M5" "M15"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz"
-
-            filter_ribosome \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz" \
-                "${data_dir}/${clone}_${rep}"
-
-            move_filter_ribosome ${data_dir} ${clone} ${rep}
-        done
-    done
-
-    local data_dir="${root_dir}/clip_seq/NP220"
-    for clone in "C6"
-    do
-        for rep in "1-High1" "1-High2" "1-Low1" "1-Low2" "2-High1" "2-High2" "2-Low1" "2-Low2"
-        do
-            check_existence "${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz"
-
-            filter_ribosome \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz" \
-                "${data_dir}/${clone}_${rep}"
-
-            move_filter_ribosome ${data_dir} ${clone} ${rep}
-        done
-    done
-    for clone in "N77"
-    do
-        for rep in "1-Large-rep1" "1-Large-rep2" "1-Middle-rep1" "1-Middle-rep2" "1-Small-rep1" "1-Small-rep2" \
-            "2-Large-rep1" "2-Large-rep2" "2-Middle-rep1" "2-Middle-rep2" "2-Small-rep1" "2-Small-rep2"
-        do
-            check_existence "${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz"
-
-            filter_ribosome \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz" \
-                "${data_dir}/${clone}_${rep}"
-
-            move_filter_ribosome ${data_dir} ${clone} ${rep}
-        done
-    done
-
-    local data_dir="${root_dir}/clip_seq/PPHLN1"
-    for clone in "PP98" "PP304"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz"
-
-            filter_ribosome \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz" \
-                "${data_dir}/${clone}_${rep}"
-
-            move_filter_ribosome ${data_dir} ${clone} ${rep}
-        done
-    done
-
-    local data_dir="${root_dir}/clip_seq/TASOR"
-    for clone in "TA242"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz"
-
-            filter_ribosome \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz" \
-                "${data_dir}/${clone}_${rep}"
-
-            move_filter_ribosome ${data_dir} ${clone} ${rep}
-        done
-    done
-
-    local data_dir="${root_dir}/clip_seq/WT"
-    for clone in "WT"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${data_dir}/non_rDNA/${clone}_${rep}_R1.fq.gz"
-
-            filter_ribosome \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz" \
-                "${data_dir}/${clone}_${rep}"
-
-            move_filter_ribosome ${data_dir} ${clone} ${rep}
+                filter_ribosome \
+                    "${root_dir}/${exp}_seq/${protein}" \
+                    "${clone}" \
+                    "${rep}"
+            done
         done
     done
 }
@@ -245,6 +111,14 @@ clear_map() {
         "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}Log.final.out" \
         "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}SJ.out.tab"
 }
+
+# star_map_all() {
+#     for exp in total pro clip
+#     do
+#         if [[ ${exp} == "total" ]]
+#         then
+#     done
+# }
 
 total_map() {
     local exp="total"
@@ -438,8 +312,8 @@ clip_map() {
 
 star_index="/home/ljw/.local/share/genomes/GRCh37/index/star"
 root_dir="/home/ljw/sdc1/hush"
-# pro_filter_ribosome
-# clip_filter_ribosome
-total_map
-pro_map
-clip_map
+# index_ribosome
+filter_ribosome_all
+# total_map
+# pro_map
+# clip_map
