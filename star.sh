@@ -96,216 +96,57 @@ star_map() {
         --sjdbGTFfile ${root_dir}/data/hg19.ncbiRefSeq.gtf
 }
 
-clear_map() {
-    local exp=$1
-    local protein=$2
-    local clone=$3
-    local rep=$4
-    
-    mv "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}Aligned.sortedByCoord.out.bam" \
-        "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
-    rm -r \
-        "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}_STARgenome" \
-        "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}Log.out" \
-        "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}Log.progress.out" \
-        "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}Log.final.out" \
-        "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}SJ.out.tab"
-}
-
-# star_map_all() {
-#     for exp in total pro clip
-#     do
-#         if [[ ${exp} == "total" ]]
-#         then
-#     done
-# }
-
-total_map() {
-    local exp="total"
-
-    local protein="PPHLN1"
-    local data_dir="${root_dir}/total_rna_seq/${protein}"
-
-    for clone in "D169" "D221" "WT6"
+star_map_all() {
+    local exp
+    for exp in total pro clip
     do
-        for rep in "rep1" "rep2" "rep3"
+        if [[ ${exp} == "total" ]]
+        then
+            local exp_dir="total_rna_seq"
+        else
+            local exp_dir="${exp}_seq"
+        fi
+        local protein
+        for protein in $(ls ${root_dir}/${exp_dir})
         do
-            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+            if [[ ! -d "${root_dir}/${exp_dir}/${protein}" ]]
+            then
+                continue
+            fi
+            if [[ -d "${root_dir}/${exp_dir}/${protein}/non_rDNA" ]]
+            then
+                local data_dir="${root_dir}/${exp_dir}/${protein}/non_rDNA"
+            else
+                local data_dir="${root_dir}/${exp_dir}/${protein}"
+            fi
+            for R1 in $(ls ${data_dir}/*_R1.fq.gz)
+            do
+                local base=${R1##*/}
+                local stem=${base%_R1.fq.gz}
+                local clone rep
+                IFS="_" read clone rep <<<${stem}
 
-            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz"
+                if [[ -f "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam" ]]
+                then
+                    echo "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam exists"
+                    continue
+                fi
 
-            clear_map ${exp} ${protein} ${clone} ${rep}
-        done
-    done
-}
+                echo "process ${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
 
-pro_map() {
-    local exp="pro"
+                star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
+                    "${data_dir}/${clone}_${rep}_R1.fq.gz" \
+                    "${data_dir}/${clone}_${rep}_R2.fq.gz"
 
-    local protein="MPP8"
-    local data_dir="${root_dir}/pro_seq/${protein}/non_rDNA"
-    for clone in "D22" "DF15" "DF17" "WT6"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
-
-            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz"
-
-            clear_map ${exp} ${protein} ${clone} ${rep}
-        done
-    done
-
-    local protein="NP220"
-    local data_dir="${root_dir}/pro_seq/${protein}/non_rDNA"
-    for clone in "D173" "DCF98" "WT6"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
-
-            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz"
-
-            clear_map ${exp} ${protein} ${clone} ${rep}
-        done
-    done
-
-    local protein="PPHLN1"
-    local data_dir="${root_dir}/pro_seq/${protein}/non_rDNA"
-    for clone in "D169" "D221" "WT6"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
-
-            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz"
-
-            clear_map ${exp} ${protein} ${clone} ${rep}
-        done
-    done
-
-    local protein="TASOR"
-    local data_dir="${root_dir}/pro_seq/${protein}/non_rDNA"
-    for clone in "D5" "DF4" "WT6"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
-
-            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz"
-
-            clear_map ${exp} ${protein} ${clone} ${rep}
-        done
-    done
-}
-
-clip_map() {
-    local exp="clip"
-
-    local protein="MPP8"
-    local data_dir="${root_dir}/clip_seq/${protein}/non_rDNA"
-    for clone in "M4" "M5" "M15"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
-
-            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz"
-
-            clear_map ${exp} ${protein} ${clone} ${rep}
-        done
-    done
-
-    local protein="NP220"
-    local data_dir="${root_dir}/clip_seq/${protein}/non_rDNA"
-    for clone in "C6"
-    do
-        for rep in "1-High1" "1-High2" "1-Low1" "1-Low2" "2-High1" "2-High2" "2-Low1" "2-Low2"
-        do
-            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
-
-            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz"
-
-            clear_map ${exp} ${protein} ${clone} ${rep}
-        done
-    done
-
-    local protein="NP220"
-    local data_dir="${root_dir}/clip_seq/${protein}/non_rDNA"
-    for clone in "N77"
-    do
-        for rep in "1-Large-rep1" "1-Large-rep2" "1-Middle-rep1" "1-Middle-rep2" "1-Small-rep1" "1-Small-rep2" \
-            "2-Large-rep1" "2-Large-rep2" "2-Middle-rep1" "2-Middle-rep2" "2-Small-rep1" "2-Small-rep2"
-        do
-            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
-
-            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz"
-
-            clear_map ${exp} ${protein} ${clone} ${rep}
-        done
-    done
-
-    local protein="PPHLN1"
-    local data_dir="${root_dir}/clip_seq/${protein}/non_rDNA"
-    for clone in "PP98" "PP304"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
-
-            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz"
-
-            clear_map ${exp} ${protein} ${clone} ${rep}
-        done
-    done
-
-    local protein="TASOR"
-    local data_dir="${root_dir}/clip_seq/${protein}/non_rDNA"
-    for clone in "TA242"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
-
-            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz"
-
-            clear_map ${exp} ${protein} ${clone} ${rep}
-        done
-    done
-
-    local protein="WT"
-    local data_dir="${root_dir}/clip_seq/${protein}/non_rDNA"
-    for clone in "WT"
-    do
-        for rep in "rep1" "rep2"
-        do
-            check_existence "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
-
-            star_map "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}" \
-                "${data_dir}/${clone}_${rep}_R1.fq.gz" \
-                "${data_dir}/${clone}_${rep}_R2.fq.gz"
-
-            clear_map ${exp} ${protein} ${clone} ${rep}
+                mv "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}Aligned.sortedByCoord.out.bam" \
+                    "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}.bam"
+                rm -r \
+                    "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}_STARgenome" \
+                    "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}Log.out" \
+                    "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}Log.progress.out" \
+                    "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}Log.final.out" \
+                    "${root_dir}/bam/${exp}_${protein}_${clone}_${rep}SJ.out.tab"
+            done
         done
     done
 }
@@ -313,7 +154,5 @@ clip_map() {
 star_index="/home/ljw/.local/share/genomes/GRCh37/index/star"
 root_dir="/home/ljw/sdc1/hush"
 # index_ribosome
-filter_ribosome_all
-# total_map
-# pro_map
-# clip_map
+# filter_ribosome_all
+# star_map_all
