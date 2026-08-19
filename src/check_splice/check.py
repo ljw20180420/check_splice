@@ -96,7 +96,7 @@ class Intervals:
     ) -> dict:
         for interval in self.intervals:
             func = getattr(interval, method)
-            info[f"{method}_{interval.name}"] = func(blocks)
+            info[f"{method}.{interval.name}"] = func(blocks)
 
         return info
 
@@ -115,7 +115,7 @@ def all_intervals(cpcdh_file: os.PathLike, cover_threshold: int):
             start - cover_threshold,
             start + cover_threshold,
             strand,
-            f"start_{name}",
+            f"start.{name}",
         )
         for chrom, start, end, strand, name in df.query('type=="intron"')[
             ["chrom", "start", "end", "strand", "name"]
@@ -127,7 +127,7 @@ def all_intervals(cpcdh_file: os.PathLike, cover_threshold: int):
             end - cover_threshold,
             end + cover_threshold,
             strand,
-            f"end_{name}",
+            f"end.{name}",
         )
         for chrom, start, end, strand, name in df.query('type=="intron"')[
             ["chrom", "start", "end", "strand", "name"]

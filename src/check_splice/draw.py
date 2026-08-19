@@ -1,8 +1,16 @@
-import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
+import matplotlib
+import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.figure import Figure
-from numpy.typing import ArrayLike
+from plotnine import (
+    aes,
+    element_text,
+    geom_raster,
+    ggplot,
+    scale_fill_gradient,
+    theme,
+)
+
+matplotlib.use("agg")
 
 
 def _white2red() -> LinearSegmentedColormap:
@@ -16,11 +24,18 @@ def _white2red() -> LinearSegmentedColormap:
     )
 
 
-def _heatmap(mat: ArrayLike, extent: list[int]) -> tuple[Figure, Axes]:
-    fig, ax = plt.subplots(figsize=(7, 6))
-    im = ax.matshow(mat, vmin=0, cmap=_white2red(), extent=extent)
-    fig.colorbar(im, fraction=0.046, pad=0.04)
-    ax.xaxis.set_label_position("top")
-    fig.tight_layout()
+def splice_heatmap(cfg):
+    df = pd.read_csv(cfg["data_dir"] / "result" / "splice.csv", header=0)
+    introns = df["name"].drop_duplicates()
+    df["name"] = pd.Categorical(df["name"], categories=introns, ordered=True)
+    df["exp_protein_wt"] = (
+        df["exp"] + "_" + df["protein"] + "_" + df["is_WT"].astype(str)
+    )
 
-    return fig, ax
+    for target in ["connect", "cover.start", "cover.end"]:
+        (
+            ggplot(data=df, mapping=aes(x="name", y="exp_protein_wt", fill=target))
+            + geom_raster()
+            + scale_fill_gradient(low="#FFFFFF", high="#FF0000")
+            + theme(axis_text_x=element_text(angle=90, ma="right"))
+        ).save(cfg["data_dir"] / "result" / f"{target}.png")
