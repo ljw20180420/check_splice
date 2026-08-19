@@ -1,6 +1,5 @@
-import os
-
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from .draw import _heatmap
@@ -9,19 +8,20 @@ from .draw import _heatmap
 def splice(cfg: dict) -> pd.DataFrame:
     cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
     df_cpcdh = pd.read_csv(cpcdh_file, header=0)
-    intron_names = df_cpcdh.query("type='intron'")["name"].to_list()
+    intron_names = df_cpcdh.query("type=='intron'")["name"].to_list()
 
     result_file = cfg["data_dir"] / "result" / "reads.jsonl"
     df = pd.read_json(result_file, lines=True)
-    columns = [
-        column
-        for intro_name in intron_names
-        for column in (
-            f"connect_{intro_name}",
-            f"cover_{intro_name}_start",
-            f"cover_{intro_name}_end",
-        )
-    ]
+
+    mask = np.any(
+        np.array([
+            df.columns[df.columns.str.endswith(f"_{intro_name}")].numpy()
+            for intro_name in intron_names
+        ]),
+        axis=0,
+    )
+    columns = df.columns[mask].to_list()
+
     df = (
         df
         .groupby(["exp", "protein", "clone", "rep", "query_name"])

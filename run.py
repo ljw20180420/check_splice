@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 
-import json
+import pandas as pd
 
-from check_splice import config, process_all
+from check_splice import config
 
 cfg = config.pcdh()
-with open(cfg["data_dir"] / "result" / "reads.jsonl", "w") as fd:
-    for info in process_all(cfg):
-        json.dump(info, fd)
+df = pd.read_json(cfg["data_dir"] / "result" / "reads.jsonl", lines=True)
+df.to_feather(cfg["data_dir"] / "result" / "reads.feather")
