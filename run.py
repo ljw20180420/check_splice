@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
-from check_splice import config, pcbs
+import json
+
+from check_splice import config, process_all
 
 cfg = config.pcdh()
-df = pcbs.get_pCBS(
-    shift_file=cfg["data_dir"] / "data" / "pCBS_shift.csv",
-    cpcdh_file=cfg["data_dir"] / "result" / "cpcdh.csv",
-)
-df.to_csv(cfg["data_dir"] / "result" / "pCBS.bed", sep="\t", header=False, index=False)
+with open(cfg["data_dir"] / "result" / "reads.jsonl", "w") as fd:
+    for info in process_all(cfg):
+        json.dump(info, fd)

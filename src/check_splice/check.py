@@ -7,6 +7,7 @@ class ReadStart:
     def __init__(self) -> None:
         pass
 
+    @classmethod
     def seq_start(cls, blocks: list[tuple[str, int, int, str]]) -> int:
         _, block_start, block_end, block_strand = blocks[0]
         if block_strand == "+":
@@ -14,6 +15,7 @@ class ReadStart:
         else:
             return block_end
 
+    @classmethod
     def seq_end(cls, blocks: list[tuple[str, int, int, str]]) -> int:
         _, block_start, block_end, block_strand = blocks[-1]
         if block_strand == "+":
@@ -21,6 +23,7 @@ class ReadStart:
         else:
             return block_start
 
+    @classmethod
     def get(
         cls, info: dict, blocks: list[tuple[str, int, int, str]], is_read1: bool
     ) -> dict:
@@ -102,7 +105,7 @@ def all_intervals(cpcdh_file: os.PathLike, cover_threshold: int):
     df = pd.read_csv(cpcdh_file, header=0)
     introns = Intervals([
         Interval(chrom, start, end, strand, name)
-        for chrom, start, end, strand, name in df.query(type="intron")[
+        for chrom, start, end, strand, name in df.query('type=="intron"')[
             ["chrom", "start", "end", "strand", "name"]
         ].itertuples(index=False)
     ])
@@ -114,7 +117,7 @@ def all_intervals(cpcdh_file: os.PathLike, cover_threshold: int):
             strand,
             f"start_{name}",
         )
-        for chrom, start, end, strand, name in df.query(type="intron")[
+        for chrom, start, end, strand, name in df.query('type=="intron"')[
             ["chrom", "start", "end", "strand", "name"]
         ].itertuples(index=False)
     ])
@@ -126,7 +129,7 @@ def all_intervals(cpcdh_file: os.PathLike, cover_threshold: int):
             strand,
             f"end_{name}",
         )
-        for chrom, start, end, strand, name in df.query(type="intron")[
+        for chrom, start, end, strand, name in df.query('type=="intron"')[
             ["chrom", "start", "end", "strand", "name"]
         ].itertuples(index=False)
     ])

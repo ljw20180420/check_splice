@@ -52,15 +52,14 @@ def process_locus(
             yield info_shadow
 
 
-def process_all(
-    bam_dir: os.PathLike,
-    chrom: str,
-    start: int,
-    end: int,
-    cpcdh_file: os.PathLike,
-    cover_threshold: int = 3,
-):
-    bam_dir = pathlib.Path(os.fspath(bam_dir))
+def process_all(cfg: dict):
+    bam_dir = cfg["data_dir"] / "bam"
+    chrom = cfg["chrom"]
+    start = cfg["start"]
+    end = cfg["end"]
+    cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
+    cover_threshold = cfg["cover_threshold"]
+
     for samfile in os.listdir(bam_dir):
         if not samfile.endswith(".bam"):
             continue

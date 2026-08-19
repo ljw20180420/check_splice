@@ -6,10 +6,12 @@ import pandas as pd
 from .draw import _heatmap
 
 
-def splice(result_file: os.PathLike, cpcdh_file: os.PathLike) -> pd.DataFrame:
+def splice(cfg: dict) -> pd.DataFrame:
+    cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
     df_cpcdh = pd.read_csv(cpcdh_file, header=0)
     intron_names = df_cpcdh.query("type='intron'")["name"].to_list()
 
+    result_file = cfg["data_dir"] / "result" / "reads.jsonl"
     df = pd.read_json(result_file, lines=True)
     columns = [
         column
