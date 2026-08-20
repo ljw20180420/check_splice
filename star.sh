@@ -151,8 +151,25 @@ star_map_all() {
     done
 }
 
+get_bam_read_count() {
+    printf "exp,protein,clone,rep,total_count\n"
+    local bamfile
+    for bamfile in $(ls ${root_dir}/bam/*.bam)
+    do
+        local base=${bamfile##*/}
+        local stem=${base%.bam}
+        local exp protein clone rep
+        IFS="_" read exp protein clone rep <<<${stem}
+        local total_count=$(samtools view -c -F 2308 ${bamfile})
+        total_count=$((total_count / 2))
+        printf "%s,%s,%s,%s,%d\n" ${exp} ${protein} ${clone} ${rep} ${total_count}
+    done
+}
+
 star_index="/home/ljw/.local/share/genomes/GRCh37/index/star"
 root_dir="/home/ljw/sdc1/hush"
 # index_ribosome
 # filter_ribosome_all
 # star_map_all
+
+get_bam_read_count > ${root_dir}/result/total_count.csv

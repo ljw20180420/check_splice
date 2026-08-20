@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 
-from check_splice import config, draw
+import json
+
+from check_splice import config, process_all
 
 cfg = config.pcdh()
-draw.splice_heatmap(cfg)
+with open(cfg["data_dir"] / "result" / "reads.jsonl", "w") as fd:
+    fd.writelines((f"{json.dumps(info)}\n" for info in process_all(cfg)))

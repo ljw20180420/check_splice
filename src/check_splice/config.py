@@ -9,4 +9,5 @@ def pcdh():
         "data_dir": Path("/home/ljw/sdc1/hush"),
         "cover_threshold": 3,
         "tss_extend": 30,
+        "exon_end_extend": 30,
     }

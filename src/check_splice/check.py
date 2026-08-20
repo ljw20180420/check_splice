@@ -3,7 +3,7 @@ import os
 import pandas as pd
 
 
-class ReadStart:
+class Read:
     def __init__(self) -> None:
         pass
 
@@ -24,13 +24,24 @@ class ReadStart:
             return block_start
 
     @classmethod
-    def get(
+    def start(
         cls, info: dict, blocks: list[tuple[str, int, int, str]], is_read1: bool
     ) -> dict:
         if is_read1:
             info["read_start"] = cls.seq_start(blocks)
         else:
             info["read_start"] = cls.seq_end(blocks)
+
+        return info
+
+    @classmethod
+    def end(
+        cls, info: dict, blocks: list[tuple[str, int, int, str]], is_read1: bool
+    ) -> dict:
+        if is_read1:
+            info["read_end"] = cls.seq_end(blocks)
+        else:
+            info["read_end"] = cls.seq_start(blocks)
 
         return info
 
@@ -86,6 +97,32 @@ class Interval:
                 return True
         return False
 
+    def inrange_end(self, blocks: list[tuple[str, int, int, str]]) -> float:
+        if self.strand == "+":
+            inrange_block_ends = [
+                block_end
+                for block_chrom, block_start, block_end, block_strand in blocks
+                if self.chrom == block_chrom
+                and self.strand == block_strand
+                and block_end <= self.end
+            ]
+            if inrange_block_ends:
+                return max(inrange_block_ends)
+            else:
+                return float("-inf")
+        else:
+            inrange_block_ends = [
+                block_start
+                for block_chrom, block_start, block_end, block_strand in blocks
+                if self.chrom == block_chrom
+                and self.strand == block_strand
+                and block_start >= self.start
+            ]
+            if inrange_block_ends:
+                return min(inrange_block_ends)
+            else:
+                return float("inf")
+
 
 class Intervals:
     def __init__(self, intervals: list[Interval]) -> None:
@@ -101,7 +138,7 @@ class Intervals:
         return info
 
 
-def all_intervals(cpcdh_file: os.PathLike, cover_threshold: int):
+def all_intervals(cpcdh_file: os.PathLike, cover_threshold: int, exon_end_extend: int):
     df = pd.read_csv(cpcdh_file, header=0)
     introns = Intervals([
         Interval(chrom, start, end, strand, name)
@@ -134,4 +171,13 @@ def all_intervals(cpcdh_file: os.PathLike, cover_threshold: int):
         ].itertuples(index=False)
     ])
 
-    return introns, intron_starts, intron_ends
+    exon_ends = Intervals([
+        Interval(
+            chrom, end - exon_end_extend, end + exon_end_extend, strand, f"end.{name}"
+        )
+        for chrom, start, end, strand, name in df.query('type=="exon"')[
+            ["chrom", "start", "end", "strand", "name"]
+        ].itertuples(index=False)
+    ])
+
+    return introns, intron_starts, intron_ends, exon_ends

@@ -1,8 +1,17 @@
-import matplotlib.pyplot as plt
+import matplotlib
 import numpy as np
 import pandas as pd
+from plotnine import (
+    aes,
+    element_text,
+    geom_raster,
+    ggplot,
+    scale_fill_gradient,
+    scale_y_discrete,
+    theme,
+)
 
-from .draw import _heatmap
+matplotlib.use("agg")
 
 
 def swap_elements(vec: list, a: str, b: str) -> list:
@@ -37,15 +46,27 @@ def splice(cfg: dict) -> pd.DataFrame:
         .reset_index()
     )
 
+    df_total = df.read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
+    df_total = (
+        df_total
+        .assign(is_WT=lambda df: df["clone"].str.startswith("WT"))
+        .groupby(["exp", "protein", "is_WT"])["total_count"]
+        .sum()
+        .reset_index()
+    )
+
     df = (
         df
         .assign(is_WT=lambda df: df["clone"].str.startswith("WT"))
         .groupby(["exp", "protein", "is_WT"])
-        .agg(**{
+        .agg(**({
             column: pd.NamedAgg(column=column, aggfunc="sum") for column in columns
-        })
+        }))
         .copy()
         .reset_index()
+        .merge(
+            df_total, how="left", on=["exp", "protein", "is_WT"], validate="many_to_one"
+        )
     )
 
     df = (
@@ -90,27 +111,33 @@ def splice(cfg: dict) -> pd.DataFrame:
 def around_tss(
     cfg: dict,
 ) -> None:
-    result_file = cfg["data_dir"] / "result" / "reads.jsonl"
-    cpcdh_file = cfg["data_dir"] / "cpcdh.csv"
-    tss_extend = cfg["tss_extend"]
-
+    cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
     df_cpcdh = pd.read_csv(cpcdh_file, header=0)
-    tsses = df_cpcdh.query("type='exon' and name.str.startswith('PCDH')")[
+    tsses = df_cpcdh.query("type=='exon' and name.str.startswith('PCDH')")[
         ["start", "name"]
     ]
 
-    df = pd.read_json(result_file, lines=True)
+    result_file = cfg["data_dir"] / "result" / "reads.feather"
+    df = pd.read_feather(result_file).assign(
+        is_WT=lambda df: df["clone"].str.startswith("WT"),
+        exp_protein_wt=lambda df: (
+            df["exp"]
+            + "_"
+            + df["protein"]
+            + "_"
+            + df["is_WT"].map({True: "wt", False: "non"})
+        ),
+    )
+    exp_protein_wts = df["exp_protein_wt"].drop_duplicates().to_list()
     read_starts = (
         df
-        .query("not is_shadow and is_read1 and strand == '+'")
-        .reset_index(drop=True)[["exp", "clone", "read_start"]]
+        .query("not is_shadow and is_read1 and is_forward")
+        .reset_index(drop=True)[["exp_protein_wt", "read_start"]]
         .value_counts()
         .reset_index()
     )
 
-    exps = read_starts["exp"].drop_duplicates().tolist()
-    clones = read_starts["clone"].drop_duplicates().tolist()
-
+    tss_extend = cfg["tss_extend"]
     df_arounds = []
     for tss, name in zip(tsses["start"], tsses["name"]):
         df_arounds.append(
@@ -119,32 +146,57 @@ def around_tss(
             .query("relative >= -@tss_extend and relative <= @tss_extend")
             .assign(exon=name)
         )
-    df_around = (
-        pd
-        .concat(df_arounds, ignore_index=True)
-        .pivot_table(values="count", index=["exp", "clone", "exon"], columns="relative")
+    df_around = pd.concat(df_arounds, ignore_index=True)
+    df_around["exon"] = pd.Categorical(
+        df_around["exon"], categories=tsses["name"].to_list(), ordered=True
+    )
+
+    df_around_agg = (
+        df_around
+        .groupby(["exon", "relative"])
+        .agg(count=pd.NamedAgg(column="count", aggfunc="sum"))
         .reindex(
             index=pd.MultiIndex.from_product(
                 [
-                    exps,
-                    clones,
-                    tsses["name"].tolist(),
+                    tsses["name"].to_list(),
+                    list(range(-tss_extend, tss_extend + 1)),
                 ],
-                names=["exp", "clone", "exon"],
+                names=["exon", "relative"],
             ),
-            columns=range(-tss_extend, tss_extend + 1),
             fill_value=0,
         )
+        .reset_index()
     )
+    (
+        ggplot(df_around_agg, mapping=aes(x="relative", y="exon", fill="count"))
+        + geom_raster()
+        + scale_fill_gradient(low="#FFFFFF", high="#FF0000")
+        + scale_y_discrete(limits=tsses["name"].to_list()[::-1])
+        + theme(axis_text_x=element_text(angle=90, ma="right"))
+    ).save(cfg["data_dir"] / "result" / "agg_around_tss.png")
 
-    for exp, clone in zip(exps, clones):
-        df_slice = df_around.loc[pd.IndexSlice[exp, clone, :], :]
-
-        fig, ax = _heatmap(
-            mat=df_slice.to_numpy(), extent=[-tss_extend, tss_extend, 0, len(tsses) - 1]
+    for exp_protein_wt in exp_protein_wts:
+        df_slice = (
+            df_around
+            .query("exp_protein_wt == @exp_protein_wt")
+            .reset_index(drop=True)[["exon", "relative", "count"]]
+            .set_index(["exon", "relative"])
+            .reindex(
+                index=pd.MultiIndex.from_product(
+                    [
+                        tsses["name"].to_list(),
+                        list(range(-tss_extend, tss_extend + 1)),
+                    ],
+                    names=["exon", "relative"],
+                ),
+                fill_value=0,
+            )
+            .reset_index()
         )
-        ax.set_xlabel("position")
-        ax.set_ylabel("exon")
-        ax.set_yticklabels(labels=df_slice.index)
-        fig.savefig(cfg["data_dir"] / "result" / f"{exp}_{clone}_around_tss.png")
-        plt.close(fig)
+        (
+            ggplot(df_slice, mapping=aes(x="relative", y="exon", fill="count"))
+            + geom_raster()
+            + scale_fill_gradient(low="#FFFFFF", high="#FF0000")
+            + scale_y_discrete(limits=tsses["name"].to_list()[::-1])
+            + theme(axis_text_x=element_text(angle=90, ma="right"))
+        ).save(cfg["data_dir"] / "result" / f"{exp_protein_wt}_around_tss.png")

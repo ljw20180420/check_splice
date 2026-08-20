@@ -1,7 +1,7 @@
 import os
 import pathlib
 
-from .check import ReadStart, all_intervals
+from .check import Read, all_intervals
 from .sam import filter_reads, parse_block
 
 
@@ -11,11 +11,17 @@ def process_locus(
     start: int,
     end: int,
     cpcdh_file: os.PathLike,
-    cover_threshold: int = 3,
+    cover_threshold: int,
+    exon_end_extend: int,
 ):
     samfile = pathlib.Path(os.fspath(samfile))
     exp, protein, clone, rep = samfile.stem.split("_")
-    introns, intron_starts, intron_ends = all_intervals(cpcdh_file, cover_threshold)
+    (
+        introns,
+        intron_starts,
+        intron_ends,
+        exon_ends,
+    ) = all_intervals(cpcdh_file, cover_threshold, exon_end_extend)
     for read in filter_reads(samfile, chrom, start, end):
         info = {
             "exp": exp,
@@ -23,6 +29,7 @@ def process_locus(
             "clone": clone,
             "rep": rep,
             "query_name": read.query_name,
+            "is_forward": read.is_forward,
             "is_read1": read.is_read1,
             "is_qcfail": read.is_qcfail,
             "is_duplicate": read.is_duplicate,
@@ -34,7 +41,8 @@ def process_locus(
         info = introns(info, blocks, "connect")
         info = intron_starts(info, blocks, "cover")
         info = intron_ends(info, blocks, "cover")
-        info = ReadStart.get(info, blocks, read.is_read1)
+        info = exon_ends(info, blocks, "inrange_end")
+        info = Read.start(info, blocks, read.is_read1)
 
         yield info
 
@@ -47,7 +55,7 @@ def process_locus(
             info_shadow = introns(info_shadow, blocks, "connect")
             info_shadow = intron_starts(info_shadow, blocks, "cover")
             info_shadow = intron_ends(info_shadow, blocks, "cover")
-            info_shadow = ReadStart.get(info_shadow, blocks, read.is_read1)
+            info_shadow = Read.start(info_shadow, blocks, read.is_read1)
 
             yield info_shadow
 
@@ -59,6 +67,7 @@ def process_all(cfg: dict):
     end = cfg["end"]
     cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
     cover_threshold = cfg["cover_threshold"]
+    exon_end_extend = cfg["exon_end_extend"]
 
     for samfile in os.listdir(bam_dir):
         if not samfile.endswith(".bam"):
@@ -71,4 +80,5 @@ def process_all(cfg: dict):
             end=end,
             cpcdh_file=cpcdh_file,
             cover_threshold=cover_threshold,
+            exon_end_extend=exon_end_extend,
         )
