@@ -46,7 +46,7 @@ def splice(cfg: dict) -> pd.DataFrame:
         .reset_index()
     )
 
-    df_total = df.read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
+    df_total = pd.read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
     df_total = (
         df_total
         .assign(is_WT=lambda df: df["clone"].str.startswith("WT"))
@@ -72,7 +72,7 @@ def splice(cfg: dict) -> pd.DataFrame:
     df = (
         df
         .melt(
-            id_vars=["exp", "protein", "is_WT"],
+            id_vars=["exp", "protein", "is_WT", "total_count"],
             value_vars=columns,
             var_name="opt_intron",
             value_name="count",
@@ -82,7 +82,9 @@ def splice(cfg: dict) -> pd.DataFrame:
             opt=lambda df: df["opt_intron"].str.rsplit(".", n=1, expand=True)[0],
         )
         .pivot_table(
-            values="count", index=["exp", "protein", "is_WT", "intron"], columns="opt"
+            values="count",
+            index=["exp", "protein", "is_WT", "total_count", "intron"],
+            columns="opt",
         )
         .reset_index()
     )
@@ -101,9 +103,7 @@ def splice(cfg: dict) -> pd.DataFrame:
         .drop(columns="intron")
     )
 
-    df = df.reindex(
-        columns=swap_elements(df.columns.to_list(), "cover.start", "cover.end")
-    )
+    df = df[swap_elements(df.columns.to_list(), "cover.start", "cover.end")]
 
     return df
 
