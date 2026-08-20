@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from check_splice import config, draw
+from check_splice import config, stat
 
 cfg = config.pcdh()
-draw.splice_heatmap(cfg)
+stat.inrange_end_around_exon_end(cfg)

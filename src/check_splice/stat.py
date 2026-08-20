@@ -1,15 +1,11 @@
+from collections.abc import Iterable
+
 import matplotlib
 import numpy as np
 import pandas as pd
-from plotnine import (
-    aes,
-    element_text,
-    geom_raster,
-    ggplot,
-    scale_fill_gradient,
-    scale_y_discrete,
-    theme,
-)
+import pypdf
+
+from .draw import around_heatmap
 
 matplotlib.use("agg")
 
@@ -108,95 +104,182 @@ def splice(cfg: dict) -> pd.DataFrame:
     return df
 
 
-def around_tss(
+def around(
     cfg: dict,
-) -> None:
-    cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
-    df_cpcdh = pd.read_csv(cpcdh_file, header=0)
-    tsses = df_cpcdh.query("type=='exon' and name.str.startswith('PCDH')")[
-        ["start", "name"]
-    ]
-
+    centers: Iterable[int],
+    center_names: Iterable[str],
+    center_axis_name: str,
+    extend: int,
+    targets: list[str],
+):
     result_file = cfg["data_dir"] / "result" / "reads.feather"
     df = pd.read_feather(result_file).assign(
-        is_WT=lambda df: df["clone"].str.startswith("WT"),
         exp_protein_wt=lambda df: (
             df["exp"]
             + "_"
             + df["protein"]
             + "_"
-            + df["is_WT"].map({True: "wt", False: "non"})
+            + df["clone"].map(lambda ele: "wt" if ele.startswith("WT") else "non")
         ),
     )
-    exp_protein_wts = df["exp_protein_wt"].drop_duplicates().to_list()
-    read_starts = (
-        df
-        .query("not is_shadow and is_read1 and is_forward")
-        .reset_index(drop=True)[["exp_protein_wt", "read_start"]]
-        .value_counts()
-        .reset_index()
-    )
 
-    tss_extend = cfg["tss_extend"]
     df_arounds = []
-    for tss, name in zip(tsses["start"], tsses["name"]):
+    for center, center_name, target in zip(centers, center_names, targets):
+        read_starts = (
+            df
+            .query("not is_shadow and is_read1 and is_forward")
+            .reset_index(drop=True)[["exp_protein_wt", target]]
+            .value_counts()
+            .reset_index()
+        )
+
         df_arounds.append(
             read_starts
-            .assign(relative=lambda df, tss=tss: df["read_start"] - tss)
-            .query("relative >= -@tss_extend and relative <= @tss_extend")
-            .assign(exon=name)
+            .assign(
+                relative=lambda df, center=center, target=target: df[target] - center
+            )
+            .query("relative >= -@extend and relative <= @extend")
+            .assign(**{center_axis_name: center_name})
         )
-    df_around = pd.concat(df_arounds, ignore_index=True)
-    df_around["exon"] = pd.Categorical(
-        df_around["exon"], categories=tsses["name"].to_list(), ordered=True
-    )
+    df_around = pd.concat(df_arounds, ignore_index=True).assign(**{
+        center_axis_name: lambda df: pd.Categorical(
+            df[center_axis_name], categories=center_names, ordered=True
+        )
+    })
 
     df_around_agg = (
         df_around
-        .groupby(["exon", "relative"])
+        .groupby([center_axis_name, "relative"])
         .agg(count=pd.NamedAgg(column="count", aggfunc="sum"))
         .reindex(
             index=pd.MultiIndex.from_product(
                 [
-                    tsses["name"].to_list(),
-                    list(range(-tss_extend, tss_extend + 1)),
+                    center_names,
+                    list(range(-extend, extend + 1)),
                 ],
-                names=["exon", "relative"],
+                names=[center_axis_name, "relative"],
             ),
             fill_value=0,
         )
         .reset_index()
     )
-    (
-        ggplot(df_around_agg, mapping=aes(x="relative", y="exon", fill="count"))
-        + geom_raster()
-        + scale_fill_gradient(low="#FFFFFF", high="#FF0000")
-        + scale_y_discrete(limits=tsses["name"].to_list()[::-1])
-        + theme(axis_text_x=element_text(angle=90, ma="right"))
-    ).save(cfg["data_dir"] / "result" / "agg_around_tss.png")
 
-    for exp_protein_wt in exp_protein_wts:
+    yield df_around_agg, "agg"
+
+    df_total = (
+        pd
+        .read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
+        .assign(
+            exp_protein_wt=lambda df: (
+                df["exp"]
+                + "_"
+                + df["protein"]
+                + "_"
+                + df["clone"].map(lambda ele: "wt" if ele.startswith("WT") else "non")
+            ),
+        )
+        .groupby("exp_protein_wt")["total_count"]
+        .sum()
+        .reset_index()
+    )
+
+    for exp_protein_wt, total_count in zip(
+        df_total["exp_protein_wt"], df_total["total_count"]
+    ):
         df_slice = (
             df_around
             .query("exp_protein_wt == @exp_protein_wt")
-            .reset_index(drop=True)[["exon", "relative", "count"]]
-            .set_index(["exon", "relative"])
+            .reset_index(drop=True)[[center_axis_name, "relative", "count"]]
+            .set_index([center_axis_name, "relative"])
             .reindex(
                 index=pd.MultiIndex.from_product(
                     [
-                        tsses["name"].to_list(),
-                        list(range(-tss_extend, tss_extend + 1)),
+                        center_names,
+                        list(range(-extend, extend + 1)),
                     ],
-                    names=["exon", "relative"],
+                    names=[center_axis_name, "relative"],
                 ),
                 fill_value=0,
             )
             .reset_index()
         )
-        (
-            ggplot(df_slice, mapping=aes(x="relative", y="exon", fill="count"))
-            + geom_raster()
-            + scale_fill_gradient(low="#FFFFFF", high="#FF0000")
-            + scale_y_discrete(limits=tsses["name"].to_list()[::-1])
-            + theme(axis_text_x=element_text(angle=90, ma="right"))
-        ).save(cfg["data_dir"] / "result" / f"{exp_protein_wt}_around_tss.png")
+
+        yield df_slice, exp_protein_wt
+
+        df_slice = df_slice.assign(
+            count=lambda df, total_count=total_count: (
+                df["count"] / total_count * 1000_000
+            )
+        )
+
+        yield df_slice, f"n_{exp_protein_wt}"
+
+
+def read_start_around_exon_start(cfg: dict) -> None:
+    cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
+    df_cpcdh = pd.read_csv(cpcdh_file, header=0)
+    tsses = df_cpcdh.query("type=='exon' and name.str.startswith('PCDH')")[
+        ["start", "name"]
+    ].reset_index(drop=True)
+
+    centers = tsses["start"]
+    center_names = tsses["name"]
+    center_axis_name = "exon_start"
+    extend = cfg["tss_extend"]
+    targets = ["read_start"] * len(center_names)
+    target_axis_name = "read_start"
+
+    pdf_files = []
+    with pypdf.PdfWriter() as pdf_writer:
+        for df, slice in around(
+            cfg, centers, center_names, center_axis_name, extend, targets
+        ):
+            pdf_file = around_heatmap(
+                cfg, df, center_names, center_axis_name, target_axis_name, slice
+            )
+            pdf_writer.append(pdf_file)
+            pdf_files.append(pdf_file)
+
+        pdf_writer.write(
+            cfg["data_dir"]
+            / "result"
+            / f"{target_axis_name}_around_{center_axis_name}.pdf"
+        )
+
+    for pdf_file in pdf_files:
+        pdf_file.unlink()
+
+
+def inrange_end_around_exon_end(cfg: dict) -> None:
+    cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
+    df_cpcdh = pd.read_csv(cpcdh_file, header=0)
+    teses = df_cpcdh.query("type=='exon' and name.str.startswith('PCDH')")[
+        ["end", "name"]
+    ].reset_index(drop=True)
+
+    centers = teses["end"]
+    center_names = teses["name"]
+    center_axis_name = "exon_end"
+    extend = cfg["exon_end_extend"]
+    targets = [f"inrange_end.end.{center_name}" for center_name in center_names]
+    target_axis_name = "inrange_end"
+
+    pdf_files = []
+    with pypdf.PdfWriter() as pdf_writer:
+        for df, slice in around(
+            cfg, centers, center_names, center_axis_name, extend, targets
+        ):
+            pdf_file = around_heatmap(
+                cfg, df, center_names, center_axis_name, target_axis_name, slice
+            )
+            pdf_writer.append(pdf_file)
+            pdf_files.append(pdf_file)
+
+        pdf_writer.write(
+            cfg["data_dir"]
+            / "result"
+            / f"{target_axis_name}_around_{center_axis_name}.pdf"
+        )
+
+    for pdf_file in pdf_files:
+        pdf_file.unlink()
