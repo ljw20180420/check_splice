@@ -99,29 +99,31 @@ class Interval:
 
     def inrange_end(self, blocks: list[tuple[str, int, int, str]]) -> float:
         if self.strand == "+":
-            inrange_block_ends = [
-                block_end
-                for block_chrom, block_start, block_end, block_strand in blocks
-                if self.chrom == block_chrom
-                and self.strand == block_strand
-                and block_end <= self.end
-            ]
-            if inrange_block_ends:
-                return max(inrange_block_ends)
-            else:
-                return float("-inf")
+            extreme_inrange_block_end = float("-inf")
+            for block_chrom, block_start, block_end, block_strand in blocks:
+                if (
+                    self.chrom == block_chrom
+                    and self.strand == block_strand
+                    and block_end <= self.end
+                    and block_end >= self.start
+                ):
+                    extreme_inrange_block_end = max(
+                        extreme_inrange_block_end, block_end
+                    )
+            return extreme_inrange_block_end
         else:
-            inrange_block_ends = [
-                block_start
-                for block_chrom, block_start, block_end, block_strand in blocks
-                if self.chrom == block_chrom
-                and self.strand == block_strand
-                and block_start >= self.start
-            ]
-            if inrange_block_ends:
-                return min(inrange_block_ends)
-            else:
-                return float("inf")
+            extreme_inrange_block_end = float("inf")
+            for block_chrom, block_start, block_end, block_strand in blocks:
+                if (
+                    self.chrom == block_chrom
+                    and self.strand == block_strand
+                    and block_start <= self.end
+                    and block_start >= self.start
+                ):
+                    extreme_inrange_block_end = min(
+                        extreme_inrange_block_end, block_start
+                    )
+            return extreme_inrange_block_end
 
 
 class Intervals:

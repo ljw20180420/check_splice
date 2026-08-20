@@ -22,6 +22,7 @@ def process_locus(
         intron_ends,
         exon_ends,
     ) = all_intervals(cpcdh_file, cover_threshold, exon_end_extend)
+
     for read in filter_reads(samfile, chrom, start, end):
         info = {
             "exp": exp,

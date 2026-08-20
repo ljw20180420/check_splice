@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
-import json
-
-from check_splice import config, process_all
+from check_splice import config, utils
 
 cfg = config.pcdh()
-with open(cfg["data_dir"] / "result" / "reads.jsonl", "w") as fd:
-    fd.writelines((f"{json.dumps(info)}\n" for info in process_all(cfg)))
+utils.jsonl2feather(
+    jsonl_file=cfg["data_dir"] / "result" / "reads.jsonl",
+    feather_file=cfg["data_dir"] / "result" / "reads.feather",
+)
