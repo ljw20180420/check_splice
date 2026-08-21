@@ -6,6 +6,7 @@ import pandas as pd
 import pypdf
 
 from .draw import around_heatmap
+from .utils import write_hic
 
 matplotlib.use("agg")
 
@@ -283,3 +284,70 @@ def inrange_end_around_exon_end(cfg: dict) -> None:
 
     for pdf_file in pdf_files:
         pdf_file.unlink()
+
+
+def hic_4dn(cfg: dict) -> None:
+    result_file = cfg["data_dir"] / "result" / "reads.feather"
+    df = pd.read_feather(result_file).assign(
+        exp_protein_wt=lambda df: (
+            df["exp"]
+            + "_"
+            + df["protein"]
+            + "_"
+            + df["clone"].map(lambda ele: "wt" if ele.startswith("WT") else "non")
+        ),
+    )
+
+    def splice_pair(ele: str) -> list:
+        blocks = ele.split(";")
+        pairs = []
+        for i in range(len(blocks) - 1):
+            block_chrom, block_start, block_end, block_strand = blocks[i].split(":")
+            next_block_chrom, next_block_start, next_block_end, next_block_strand = (
+                blocks[i + 1].split(":")
+            )
+            pairs.append(
+                f"{block_chrom}:{int(block_end) + 1}:{block_strand}:{next_block_chrom}:{int(next_block_start) + 1}:{next_block_strand}"
+            )
+        return pairs
+
+    df = (
+        df
+        .query("not is_shadow and blocks.str.contains(';')")
+        .reset_index(drop=True)[["query_name", "blocks"]]
+        .assign(blocks=lambda df: df["blocks"].map(splice_pair))
+        .explode("blocks", ignore_index=True)
+    )
+
+    df = pd.concat(
+        [
+            df[["query_name"]].rename(columns={"query_name": "readID"}),
+            df["blocks"]
+            .str.split(":", expand=True)
+            .rename(
+                columns={
+                    0: "chrom1",
+                    1: "pos1",
+                    2: "strand1",
+                    3: "chrom2",
+                    4: "pos2",
+                    5: "strand2",
+                }
+            )[["chrom1", "pos1", "chrom2", "pos2", "strand1", "strand2"]],
+        ],
+        axis=1,
+    )
+
+    write_hic(
+        df=df.query("strand1 == '+' and strand2 == '+'"),
+        hic_file=cfg["data_dir"] / "result" / "ff.hic",
+        resolutions=[1, 10, 100, 1000],
+        chrom_sizes="chr5.chrom.sizes",
+    )
+
+    write_hic(
+        df=df.query("strand1 == '-' and strand2 == '-'"),
+        hic_file=cfg["data_dir"] / "result" / "rr.hic",
+        resolutions=[1, 10, 100, 1000],
+        chrom_sizes="chr5.chrom.sizes",
+    )

@@ -1,5 +1,8 @@
 import os
+import shutil
+import subprocess
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 from pyarrow import ipc
@@ -19,3 +22,59 @@ def jsonl2feather(jsonl_file: os.PathLike, feather_file: os.PathLike):
 
     df = pd.read_feather(feather_file)
     df.to_feather(feather_file)
+
+
+def write_hic(
+    df: pd.DataFrame,
+    hic_file: os.PathLike,
+    resolutions: list[int],
+    chrom_sizes: os.PathLike,
+) -> None:
+    pair_file = hic_file.with_suffix(".pairs")
+    with open(pair_file, "w") as fd:
+        fd.write("## pairs format v1.0\n")
+        df.rename(
+            columns={
+                "pos1": "pos1_old",
+                "pos2": "pos2_old",
+            }
+        ).assign(
+            pos1=lambda df: np.minimum(df["pos1_old"], df["pos2_old"]),
+            pos2=lambda df: np.maximum(df["pos1_old"], df["pos2_old"]),
+        )[["readID", "chrom1", "pos1", "chrom2", "pos2", "strand1", "strand2"]].to_csv(
+            fd, sep="\t", header=False, index=False
+        )
+
+        subprocess.run(
+            args=[
+                "hictk",
+                "load",
+                "--format",
+                "4dn",
+                "--bin-size",
+                f"{resolutions[0]}",
+                "--chrom-sizes",
+                os.fspath(chrom_sizes),
+                "--force",
+                os.fspath(pair_file),
+                os.fspath(hic_file),
+            ],
+            check=False,
+        )
+
+        subprocess.run(
+            args=["hictk", "zoomify", "--resolutions"]
+            + [f"{resolution}" for resolution in resolutions]
+            + [
+                "--force",
+                os.fspath(hic_file),
+                f"{os.fspath(hic_file.with_suffix('.m.hic'))}",
+            ],
+            check=False,
+        )
+
+        shutil.move(f"{os.fspath(hic_file.with_suffix('.m.hic'))}", os.fspath(hic_file))
+
+        subprocess.run(
+            args=["hictk", "balance", "scale", os.fspath(hic_file)], check=False
+        )

@@ -23,12 +23,14 @@ def process_locus(
         exon_ends,
     ) = all_intervals(cpcdh_file, cover_threshold, exon_end_extend)
 
+    info = {
+        "exp": exp,
+        "protein": protein,
+        "clone": clone,
+        "rep": rep,
+    }
     for read in filter_reads(samfile, chrom, start, end):
-        info = {
-            "exp": exp,
-            "protein": protein,
-            "clone": clone,
-            "rep": rep,
+        info |= {
             "query_name": read.query_name,
             "is_forward": read.is_forward,
             "is_read1": read.is_read1,
@@ -39,26 +41,33 @@ def process_locus(
         }
 
         blocks = list(parse_block(read))
+        info["blocks"] = ";".join([
+            f"{block_chrom}:{block_start}:{block_end}:{block_strand}"
+            for block_chrom, block_start, block_end, block_strand in blocks
+        ])
         info = introns(info, blocks, "connect")
         info = intron_starts(info, blocks, "cover")
         info = intron_ends(info, blocks, "cover")
         info = exon_ends(info, blocks, "inrange_end")
         info = Read.start(info, blocks, read.is_read1)
 
-        yield info
+        yield info.copy()
 
         if exp == "rna" and protein in ["MPP8", "PPHLN1", "TASOR"]:
-            info_shadow = info.copy()
-            info_shadow["is_shadow"] = True
+            info["is_shadow"] = True
             read.is_read1 = not read.is_read1
 
             blocks = list(parse_block(read))
-            info_shadow = introns(info_shadow, blocks, "connect")
-            info_shadow = intron_starts(info_shadow, blocks, "cover")
-            info_shadow = intron_ends(info_shadow, blocks, "cover")
-            info_shadow = Read.start(info_shadow, blocks, read.is_read1)
+            info["blocks"] = ";".join([
+                f"{block_chrom}:{block_start}:{block_end}:{block_strand}"
+                for block_chrom, block_start, block_end, block_strand in blocks
+            ])
+            info = introns(info, blocks, "connect")
+            info = intron_starts(info, blocks, "cover")
+            info = intron_ends(info, blocks, "cover")
+            info = Read.start(info, blocks, read.is_read1)
 
-            yield info_shadow
+            yield info.copy()
 
 
 def process_all(cfg: dict):
