@@ -314,14 +314,16 @@ def hic_4dn(cfg: dict) -> None:
     df = (
         df
         .query("not is_shadow and blocks.str.contains(';')")
-        .reset_index(drop=True)[["query_name", "blocks"]]
+        .reset_index(drop=True)[["exp_protein_wt", "query_name", "blocks"]]
         .assign(blocks=lambda df: df["blocks"].map(splice_pair))
         .explode("blocks", ignore_index=True)
     )
 
     df = pd.concat(
         [
-            df[["query_name"]].rename(columns={"query_name": "readID"}),
+            df[["exp_protein_wt", "query_name"]].rename(
+                columns={"query_name": "readID"}
+            ),
             df["blocks"]
             .str.split(":", expand=True)
             .rename(
@@ -338,16 +340,38 @@ def hic_4dn(cfg: dict) -> None:
         axis=1,
     )
 
+    exp_protein_wts = df["exp_protein_wt"].drop_duplicates().to_list()
+
     write_hic(
-        df=df.query("strand1 == '+' and strand2 == '+'"),
+        df=df.query("strand1 == '+' and strand2 == '+'").drop(columns="exp_protein_wt"),
         hic_file=cfg["data_dir"] / "result" / "ff.hic",
         resolutions=[1, 10, 100, 1000],
         chrom_sizes="chr5.chrom.sizes",
     )
 
+    for exp_protein_wt in exp_protein_wts:
+        write_hic(
+            df=df.query(
+                "exp_protein_wt == @exp_protein_wt and strand1 == '+' and strand2 == '+'"
+            ).drop(columns="exp_protein_wt"),
+            hic_file=cfg["data_dir"] / "result" / f"{exp_protein_wt}_ff.hic",
+            resolutions=[1, 10, 100, 1000],
+            chrom_sizes="chr5.chrom.sizes",
+        )
+
     write_hic(
-        df=df.query("strand1 == '-' and strand2 == '-'"),
+        df=df.query("strand1 == '-' and strand2 == '-'").drop(columns="exp_protein_wt"),
         hic_file=cfg["data_dir"] / "result" / "rr.hic",
         resolutions=[1, 10, 100, 1000],
         chrom_sizes="chr5.chrom.sizes",
     )
+
+    for exp_protein_wt in exp_protein_wts:
+        write_hic(
+            df=df.query(
+                "exp_protein_wt == @exp_protein_wt and strand1 == '-' and strand2 == '-'"
+            ).drop(columns="exp_protein_wt"),
+            hic_file=cfg["data_dir"] / "result" / f"{exp_protein_wt}_rr.hic",
+            resolutions=[1, 10, 100, 1000],
+            chrom_sizes="chr5.chrom.sizes",
+        )

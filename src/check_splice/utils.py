@@ -45,36 +45,34 @@ def write_hic(
             fd, sep="\t", header=False, index=False
         )
 
-        subprocess.run(
-            args=[
-                "hictk",
-                "load",
-                "--format",
-                "4dn",
-                "--bin-size",
-                f"{resolutions[0]}",
-                "--chrom-sizes",
-                os.fspath(chrom_sizes),
-                "--force",
-                os.fspath(pair_file),
-                os.fspath(hic_file),
-            ],
-            check=False,
-        )
+    subprocess.run(
+        args=[
+            "hictk",
+            "load",
+            "--format",
+            "4dn",
+            "--bin-size",
+            f"{resolutions[0]}",
+            "--chrom-sizes",
+            os.fspath(chrom_sizes),
+            "--force",
+            os.fspath(pair_file),
+            os.fspath(hic_file),
+        ],
+        check=False,
+    )
 
-        subprocess.run(
-            args=["hictk", "zoomify", "--resolutions"]
-            + [f"{resolution}" for resolution in resolutions]
-            + [
-                "--force",
-                os.fspath(hic_file),
-                f"{os.fspath(hic_file.with_suffix('.m.hic'))}",
-            ],
-            check=False,
-        )
+    subprocess.run(
+        args=["hictk", "zoomify", "--resolutions"]
+        + [f"{resolution}" for resolution in resolutions]
+        + [
+            "--force",
+            os.fspath(hic_file),
+            f"{os.fspath(hic_file.with_suffix('.m.hic'))}",
+        ],
+        check=False,
+    )
 
-        shutil.move(f"{os.fspath(hic_file.with_suffix('.m.hic'))}", os.fspath(hic_file))
+    shutil.move(f"{os.fspath(hic_file.with_suffix('.m.hic'))}", os.fspath(hic_file))
 
-        subprocess.run(
-            args=["hictk", "balance", "scale", os.fspath(hic_file)], check=False
-        )
+    subprocess.run(args=["hictk", "balance", "scale", os.fspath(hic_file)], check=False)
