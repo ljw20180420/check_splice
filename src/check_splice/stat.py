@@ -341,10 +341,11 @@ def hic_4dn(cfg: dict) -> None:
     )
 
     exp_protein_wts = df["exp_protein_wt"].drop_duplicates().to_list()
+    (cfg["data_dir"] / "result" / "hic").mkdir(exist_ok=True, parents=True)
 
     write_hic(
         df=df.query("strand1 == '+' and strand2 == '+'").drop(columns="exp_protein_wt"),
-        hic_file=cfg["data_dir"] / "result" / "ff.hic",
+        hic_file=cfg["data_dir"] / "result" / "hic" / "ff.hic",
         resolutions=[1, 10, 100, 1000],
         chrom_sizes="chr5.chrom.sizes",
     )
@@ -354,14 +355,14 @@ def hic_4dn(cfg: dict) -> None:
             df=df.query(
                 "exp_protein_wt == @exp_protein_wt and strand1 == '+' and strand2 == '+'"
             ).drop(columns="exp_protein_wt"),
-            hic_file=cfg["data_dir"] / "result" / f"{exp_protein_wt}_ff.hic",
+            hic_file=cfg["data_dir"] / "result" / "hic" / f"{exp_protein_wt}_ff.hic",
             resolutions=[1, 10, 100, 1000],
             chrom_sizes="chr5.chrom.sizes",
         )
 
     write_hic(
         df=df.query("strand1 == '-' and strand2 == '-'").drop(columns="exp_protein_wt"),
-        hic_file=cfg["data_dir"] / "result" / "rr.hic",
+        hic_file=cfg["data_dir"] / "result" / "hic" / "rr.hic",
         resolutions=[1, 10, 100, 1000],
         chrom_sizes="chr5.chrom.sizes",
     )
@@ -371,7 +372,7 @@ def hic_4dn(cfg: dict) -> None:
             df=df.query(
                 "exp_protein_wt == @exp_protein_wt and strand1 == '-' and strand2 == '-'"
             ).drop(columns="exp_protein_wt"),
-            hic_file=cfg["data_dir"] / "result" / f"{exp_protein_wt}_rr.hic",
+            hic_file=cfg["data_dir"] / "result" / "hic" / f"{exp_protein_wt}_rr.hic",
             resolutions=[1, 10, 100, 1000],
             chrom_sizes="chr5.chrom.sizes",
         )
