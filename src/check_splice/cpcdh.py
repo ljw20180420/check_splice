@@ -64,8 +64,8 @@ def get_cpcdh_exon(gtffile: os.PathLike) -> pd.DataFrame:
         .reset_index()
         .rename(columns={"exon_start": "start", "exon_end": "end"})
         .assign(
-            CDS_start=lambda df: df["CDS_start"].fillna(df["start"]),
-            CDS_end=lambda df: df["CDS_end"].fillna(df["end"]),
+            CDS_start=lambda df: df["CDS_start"].fillna("."),
+            CDS_end=lambda df: df["CDS_end"].fillna("."),
         )
         .assign(score=".")[
             [
@@ -118,8 +118,6 @@ def get_cpcdh_exon(gtffile: os.PathLike) -> pd.DataFrame:
         .astype({
             "start": "int64",
             "end": "int64",
-            "CDS_start": "int64",
-            "CDS_end": "int64",
         })
         .sort_values(by=["start", "end"], ignore_index=True)
     )
