@@ -42,6 +42,6 @@ do
             draw_hic \
                 ${root_dir}/result/hic/${exp_protein_wt}_${orientation}.hic \
                 ${key} ${region}
-        done < src/check_splice/exp_protein_wts.txt
+        done < exp_protein_wts.txt
     done
 done
