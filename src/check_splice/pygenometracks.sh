@@ -9,12 +9,12 @@ draw_hic() {
     make_tracks_file \
         --trackFiles \
             ${hic} \
-            "${root_dir}/result/pCBS.bed" \
             <(
                 tail -n+2 "${root_dir}/result/cpcdh.csv" |
                 cut -d, -f1-6 |
                 tr ',' '\t'
             ) \
+            "${root_dir}/result/pCBS.bed" \
         -o tracks.ini
     pyGenomeTracks \
         --tracks tracks.ini \
