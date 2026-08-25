@@ -6,9 +6,10 @@ readme = "README.md"
 authors = [
     { name = "ljw", email = "ljw2017@sjtu.edu.cn" }
 ]
-requires-python = ">=3.14"
+requires-python = "==3.13.*"
 dependencies = [
     "bioframe>=0.8.0",
+    "coolbox>=0.4.0",
     "ipykernel>=7.3.0",
     "pandas[feather]>=3.0.5",
     "plotnine>=0.15.7",
