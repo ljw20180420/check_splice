@@ -76,3 +76,43 @@ def write_hic(
     shutil.move(f"{os.fspath(hic_file.with_suffix('.m.hic'))}", os.fspath(hic_file))
 
     subprocess.run(args=["hictk", "balance", "scale", os.fspath(hic_file)], check=False)
+
+
+def prepare_gene_bed12(cfg: dict) -> None:
+    df = (
+        pd
+        .read_csv(
+            "/home/ljw/sdb1/ucsc/hubs/myHub/lhg19/lhg19.bgp", sep="\t", header=None
+        )[list(range(12))]
+        .rename(
+            columns={
+                0: "chrom",
+                1: "chromStart",
+                2: "chromEnd",
+                3: "name",
+                4: "score",
+                5: "strand",
+                6: "thickStart",
+                7: "thickEnd",
+                8: "itemRgb",
+                9: "blockCount",
+                10: "blockSizes",
+                11: "blockStarts",
+            }
+        )
+        .query("not name.str.startswith('PCDHA') or blockCount == 4")
+        .query(
+            "not name.str.startswith('PCDHB') or blockCount == 1 or name == 'PCDHB9'"
+        )
+        .query("not name.str.startswith('PCDHG') or blockCount == 4")
+        .query("name != 'PCDHA1' or blockSizes.str.startswith('2545')")
+        .query("name != 'PCDHA6' or blockSizes.str.startswith('2526')")
+        .query("name != 'PCDHA10' or blockSizes.str.startswith('2540')")
+        .query("name != 'PCDHGA11' or blockSizes.str.startswith('2610')")
+        .query("name != 'PCDHGC3' or blockSizes.str.startswith('2581')")
+        .reset_index(drop=True)
+    )
+
+    df.to_csv(
+        cfg["data_dir"] / "result" / "hg19.12.bed", sep="\t", header=False, index=False
+    )

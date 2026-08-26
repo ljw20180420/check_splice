@@ -29,7 +29,10 @@ def draw_links(cfg: dict, exp_protein_wt: str, orientation: str):
             + Pairs(os.fspath(pairs_file))
             + TrackHeight(5)
             + Title("splice")
-            + BED(os.fspath(cfg["data_dir"] / "data" / "hg19.12.bed"))
+            + BED(
+                os.fspath(cfg["data_dir"] / "result" / "hg19.12.bed"),
+                display="interlaced",
+            )
             + Title("gene")
             + BED(os.fspath(cfg["data_dir"] / "result" / "pCBS.bed"))
             + Title("pCBS")

@@ -15,8 +15,8 @@ def get_pCBS(shift_file: os.PathLike, cpcdh_file: os.PathLike) -> pd.DataFrame:
         .astype({"CDS_start": int, "CDS_end": int})
     )
     df = df.assign(
-        end=lambda df: df["CDS_start"] + df["shift"] + 1,
-        start=lambda df: df["end"] - 42,
+        end=lambda df: df["CDS_start"] + df["shift"] + 2,
+        start=lambda df: df["end"] - 27,
     )[["chrom", "start", "end", "name"]].assign(score=".", strand="+")
 
     return df
