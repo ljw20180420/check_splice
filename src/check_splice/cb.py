@@ -10,14 +10,18 @@ def get_bedpe_file_name(
     cfg: dict, exp_protein_wt: str, orientations: str
 ) -> os.PathLike:
     if orientations == ["ff"] or orientations == ["rr"]:
-        bedpe_file = f"{orientations[0].bedpe}"
+        orientation = orientations[0]
     elif orientations == ["ff", "rr"] or orientations == ["rr", "ff"]:
-        bedpe_file = "fr.bedpe"
+        orientation = "fr"
+    else:
+        raise ValueError("Invalid orientations")
+
+    bedpe_file = f"{orientation}.bedpe"
 
     if exp_protein_wt:
         bedpe_file = f"{exp_protein_wt}_{bedpe_file}"
 
-    return cfg["data_dir"] / "result" / "hic" / bedpe_file
+    return cfg["data_dir"] / "result" / "hic" / bedpe_file, orientation
 
 
 def draw_links(
@@ -54,7 +58,7 @@ def draw_links(
             )
         )
 
-    bedpe_file = get_bedpe_file_name(cfg, exp_protein_wt, orientations)
+    bedpe_file, orientation = get_bedpe_file_name(cfg, exp_protein_wt, orientations)
 
     df = pd.concat(dfs, ignore_index=True)
     df = (
