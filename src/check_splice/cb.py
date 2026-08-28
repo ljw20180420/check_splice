@@ -6,20 +6,57 @@ import pypdf
 from coolbox.api import *
 
 
-def draw_links(cfg: dict, exp_protein_wt: str, orientation: str):
-    if exp_protein_wt:
-        pairs_file = (
-            cfg["data_dir"] / "result" / "hic" / f"{exp_protein_wt}_{orientation}.pairs"
-        )
-    else:
-        pairs_file = cfg["data_dir"] / "result" / "hic" / f"{orientation}.pairs"
+def get_bedpe_file_name(
+    cfg: dict, exp_protein_wt: str, orientations: str
+) -> os.PathLike:
+    if orientations == ["ff"] or orientations == ["rr"]:
+        bedpe_file = f"{orientations[0].bedpe}"
+    elif orientations == ["ff", "rr"] or orientations == ["rr", "ff"]:
+        bedpe_file = "fr.bedpe"
 
-    df = pd.read_csv(
-        pairs_file,
-        sep="\t",
-        skiprows=1,
-        names=["readID", "chrom1", "pos1", "chrom2", "pos2", "strand1", "strand2"],
-    )
+    if exp_protein_wt:
+        bedpe_file = f"{exp_protein_wt}_{bedpe_file}"
+
+    return cfg["data_dir"] / "result" / "hic" / bedpe_file
+
+
+def draw_links(
+    cfg: dict,
+    exp_protein_wt: str,
+    orientations: str,
+):
+    dfs = []
+    for orientation in orientations:
+        if exp_protein_wt:
+            pairs_file = (
+                cfg["data_dir"]
+                / "result"
+                / "hic"
+                / f"{exp_protein_wt}_{orientation}.pairs"
+            )
+        else:
+            pairs_file = cfg["data_dir"] / "result" / "hic" / f"{orientation}.pairs"
+
+        dfs.append(
+            pd.read_csv(
+                pairs_file,
+                sep="\t",
+                skiprows=1,
+                names=[
+                    "readID",
+                    "chrom1",
+                    "pos1",
+                    "chrom2",
+                    "pos2",
+                    "strand1",
+                    "strand2",
+                ],
+            )
+        )
+
+    bedpe_file = get_bedpe_file_name(cfg, exp_protein_wt, orientations)
+
+    df = pd.concat(dfs, ignore_index=True)
     df = (
         df
         .rename(
@@ -59,7 +96,7 @@ def draw_links(cfg: dict, exp_protein_wt: str, orientation: str):
         ]
     )
 
-    df.to_csv(pairs_file.with_suffix(".bedpe"), sep="\t", header=False, index=False)
+    df.to_csv(bedpe_file, sep="\t", header=False, index=False)
 
     regions = {
         "cpcdh": {
@@ -74,7 +111,7 @@ def draw_links(cfg: dict, exp_protein_wt: str, orientation: str):
     for cluster, region in regions.items():
         frame = (
             XAxis(name="hg19")
-            + BEDPE(os.fspath(pairs_file.with_suffix(".bedpe")))
+            + BEDPE(os.fspath(bedpe_file))
             + TrackHeight(5)
             + Title("splice")
             + Spacer(1)
@@ -94,23 +131,27 @@ def draw_links(cfg: dict, exp_protein_wt: str, orientation: str):
             + FrameTitle(f"{exp_protein_wt}:{orientation}:{cluster}")
         )
         fig = frame.plot(f"{region['chrom']}:{region['start']}-{region['end']}")
-        fig.savefig(os.fspath(pairs_file.with_suffix(f".{cluster}.pdf")))
+        fig.savefig(os.fspath(bedpe_file.with_suffix(f".{cluster}.pdf")))
         plt.close(fig)
 
-        yield pairs_file.with_suffix(f".{cluster}.pdf")
+        yield bedpe_file.with_suffix(f".{cluster}.pdf")
 
 
 def draw_links_all(cfg):
     pdf_files = []
     with pypdf.PdfWriter() as pdf_writer:
-        for orientation in ["ff", "rr"]:
-            for pdf_file in draw_links(cfg, "", orientation):
+        for orientations in [["ff", "rr"], ["ff"], ["rr"]]:
+            for pdf_file in draw_links(
+                cfg,
+                "",
+                orientations,
+            ):
                 pdf_writer.append(pdf_file)
                 pdf_files.append(pdf_file)
             with open("exp_protein_wts.txt", "r") as fd:
                 for exp_protein_wt in fd:
                     exp_protein_wt = exp_protein_wt.strip()
-                    for pdf_file in draw_links(cfg, exp_protein_wt, orientation):
+                    for pdf_file in draw_links(cfg, exp_protein_wt, orientations):
                         pdf_writer.append(pdf_file)
                         pdf_files.append(pdf_file)
 
