@@ -2,7 +2,7 @@ import os
 import pathlib
 
 from .check import Read, all_intervals
-from .sam import filter_reads, parse_block
+from .sam import filter_reads, parse_block_with_flip_R2
 
 
 def process_locus(
@@ -40,7 +40,7 @@ def process_locus(
             "is_shadow": False,
         }
 
-        blocks = list(parse_block(read))
+        blocks = parse_block_with_flip_R2(read)
         info["blocks"] = ";".join([
             f"{block_chrom}:{block_start}:{block_end}:{block_strand}"
             for block_chrom, block_start, block_end, block_strand in blocks
@@ -57,7 +57,7 @@ def process_locus(
             info["is_shadow"] = True
             read.is_read1 = not read.is_read1
 
-            blocks = list(parse_block(read))
+            blocks = parse_block_with_flip_R2(read)
             info["blocks"] = ";".join([
                 f"{block_chrom}:{block_start}:{block_end}:{block_strand}"
                 for block_chrom, block_start, block_end, block_strand in blocks

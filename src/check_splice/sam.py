@@ -32,30 +32,24 @@ def parse_cigar(start: int, cigarstring: str):
     return blocks
 
 
-def parse_sa(sa_tag: str, is_read1: bool):
+def parse_sa(sa_tag: str):
     for alignment_str in sa_tag.split(";"):
         if not alignment_str:
             continue
 
         chrom, start, strand, cigar, _ = alignment_str.split(",")
         start = int(start) - 1
-        if not is_read1:
-            strand = "-" if strand == "+" else "+"
 
         yield chrom, start, strand, cigar
 
 
-def parse_block(read: pysam.AlignedSegment):
+def parse_block_without_flip_R2(read: pysam.AlignedSegment):
     chroms = [read.reference_name]
     starts = [read.reference_start]
-    strands = [
-        "+"
-        if read.is_forward and read.is_read1 or not read.is_forward and read.is_read2
-        else "-"
-    ]
+    strands = ["+" if read.is_forward else "-"]
     cigars = [read.cigarstring]
     if read.has_tag("SA"):
-        for chrom, start, strand, cigar in parse_sa(read.get_tag("SA"), read.is_read1):
+        for chrom, start, strand, cigar in parse_sa(read.get_tag("SA")):
             chroms.append(chrom)
             starts.append(start)
             strands.append(strand)
@@ -69,6 +63,23 @@ def parse_block(read: pysam.AlignedSegment):
         else:
             for block_start, block_end in reversed(blocks):
                 yield chrom, block_start, block_end, strand
+
+
+def parse_block_with_flip_R2(read: pysam.AlignedSegment) -> list:
+    blocks = list(parse_block_without_flip_R2(read))
+    if read.is_read1:
+        return blocks
+
+    flip_blocks = []
+    for chrom, block_start, block_end, strand in reversed(blocks):
+        flip_blocks.append((
+            chrom,
+            block_start,
+            block_end,
+            "+" if strand == "-" else "-",
+        ))
+
+    return flip_blocks
 
 
 def filter_reads(samfile: os.PathLike, chrom: str, start: int, end: int):
