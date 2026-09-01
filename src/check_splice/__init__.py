@@ -2,7 +2,7 @@ import os
 import pathlib
 
 from .check import Read, all_intervals
-from .sam import filter_reads, parse_block_with_flip_R2
+from .sam import filter_reads, parse_block_with_flip
 
 
 def process_locus(
@@ -13,6 +13,7 @@ def process_locus(
     cpcdh_file: os.PathLike,
     cover_threshold: int,
     exon_end_extend: int,
+    flip: str,
 ):
     samfile = pathlib.Path(os.fspath(samfile))
     exp, protein, clone, rep = samfile.stem.split("_")
@@ -40,7 +41,7 @@ def process_locus(
             "is_shadow": False,
         }
 
-        blocks = parse_block_with_flip_R2(read)
+        blocks = parse_block_with_flip(read, flip)
         info["blocks"] = ";".join([
             f"{block_chrom}:{block_start}:{block_end}:{block_strand}"
             for block_chrom, block_start, block_end, block_strand in blocks
@@ -57,7 +58,7 @@ def process_locus(
             info["is_shadow"] = True
             read.is_read1 = not read.is_read1
 
-            blocks = parse_block_with_flip_R2(read)
+            blocks = parse_block_with_flip(read, flip)
             info["blocks"] = ";".join([
                 f"{block_chrom}:{block_start}:{block_end}:{block_strand}"
                 for block_chrom, block_start, block_end, block_strand in blocks
@@ -91,4 +92,5 @@ def process_all(cfg: dict):
             cpcdh_file=cpcdh_file,
             cover_threshold=cover_threshold,
             exon_end_extend=exon_end_extend,
+            flip=cfg["flip"],
         )

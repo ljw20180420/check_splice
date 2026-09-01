@@ -24,13 +24,10 @@ def jsonl2feather(jsonl_file: os.PathLike, feather_file: os.PathLike):
     df.to_feather(feather_file)
 
 
-def write_hic(
+def write_pair(
     df: pd.DataFrame,
-    hic_file: os.PathLike,
-    resolutions: list[int],
-    chrom_sizes: os.PathLike,
+    pair_file: os.PathLike,
 ) -> None:
-    pair_file = hic_file.with_suffix(".pairs")
     with open(pair_file, "w") as fd:
         fd.write("## pairs format v1.0\n")
         df.rename(
@@ -45,6 +42,11 @@ def write_hic(
             fd, sep="\t", header=False, index=False
         )
 
+
+def pair_to_hic(
+    pair_file: os.PathLike, resolutions: list[int], chrom_sizes: os.PathLike
+) -> None:
+    hic_file = pair_file.with_suffix(".hic")
     subprocess.run(
         args=[
             "hictk",

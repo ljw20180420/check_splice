@@ -6,7 +6,7 @@ import pandas as pd
 import pypdf
 
 from .draw import around_heatmap
-from .utils import write_hic
+from .utils import write_pair
 
 matplotlib.use("agg")
 
@@ -112,6 +112,7 @@ def around(
     center_axis_name: str,
     extend: int,
     targets: list[str],
+    filter: str,
 ):
     result_file = cfg["data_dir"] / "result" / "reads.feather"
     df = pd.read_feather(result_file).assign(
@@ -120,7 +121,9 @@ def around(
             + "_"
             + df["protein"]
             + "_"
-            + df["clone"].map(lambda ele: "wt" if ele.startswith("WT") else "non")
+            + df["clone"].map(
+                lambda ele: "control" if ele.startswith("WT") else "delta"
+            )
         ),
     )
 
@@ -128,7 +131,7 @@ def around(
     for center, center_name, target in zip(centers, center_names, targets):
         read_starts = (
             df
-            .query("not is_shadow and is_read1 and is_forward")
+            .query(filter)
             .reset_index(drop=True)[["exp_protein_wt", target]]
             .value_counts()
             .reset_index()
@@ -176,7 +179,9 @@ def around(
                 + "_"
                 + df["protein"]
                 + "_"
-                + df["clone"].map(lambda ele: "wt" if ele.startswith("WT") else "non")
+                + df["clone"].map(
+                    lambda ele: "control" if ele.startswith("WT") else "delta"
+                )
             ),
         )
         .groupby("exp_protein_wt")["total_count"]
@@ -205,7 +210,7 @@ def around(
             .reset_index()
         )
 
-        yield df_slice, exp_protein_wt
+        # yield df_slice, exp_protein_wt
 
         df_slice = df_slice.assign(
             count=lambda df, total_count=total_count: (
@@ -229,15 +234,19 @@ def read_start_around_exon_start(cfg: dict) -> None:
     extend = cfg["tss_extend"]
     targets = ["read_start"] * len(center_names)
     target_axis_name = "read_start"
+    if cfg["flip"] == "R2":
+        filter = "not is_shadow and is_read1 and is_forward"
+    elif cfg["flip"] == "R1":
+        filter = "not is_shadow and not is_read1 and is_forward"
+    else:
+        raise ValueError("flip must be either 'R1' or 'R2'")
 
     pdf_files = []
     with pypdf.PdfWriter() as pdf_writer:
         for df, slice in around(
-            cfg, centers, center_names, center_axis_name, extend, targets
+            cfg, centers, center_names, center_axis_name, extend, targets, filter
         ):
-            pdf_file = around_heatmap(
-                cfg, df, center_names, center_axis_name, target_axis_name, slice
-            )
+            pdf_file = around_heatmap(cfg, df, center_names, center_axis_name, slice)
             pdf_writer.append(pdf_file)
             pdf_files.append(pdf_file)
 
@@ -264,15 +273,19 @@ def inrange_end_around_exon_end(cfg: dict) -> None:
     extend = cfg["exon_end_extend"]
     targets = [f"inrange_end.end.{center_name}" for center_name in center_names]
     target_axis_name = "inrange_end"
+    if cfg["flip"] == "R2":
+        filter = "not is_shadow and (is_read1 and is_forward or not is_read1 and not is_forward)"
+    elif cfg["flip"] == "R1":
+        filter = "not is_shadow and (not is_read1 and is_forward or is_read1 and not is_forward)"
+    else:
+        raise ValueError("flip must be either 'R1' or 'R2'")
 
     pdf_files = []
     with pypdf.PdfWriter() as pdf_writer:
         for df, slice in around(
-            cfg, centers, center_names, center_axis_name, extend, targets
+            cfg, centers, center_names, center_axis_name, extend, targets, filter
         ):
-            pdf_file = around_heatmap(
-                cfg, df, center_names, center_axis_name, target_axis_name, slice
-            )
+            pdf_file = around_heatmap(cfg, df, center_names, center_axis_name, slice)
             pdf_writer.append(pdf_file)
             pdf_files.append(pdf_file)
 
@@ -294,7 +307,9 @@ def hic_4dn(cfg: dict) -> None:
             + "_"
             + df["protein"]
             + "_"
-            + df["clone"].map(lambda ele: "wt" if ele.startswith("WT") else "non")
+            + df["clone"].map(
+                lambda ele: "control" if ele.startswith("WT") else "delta"
+            )
         ),
     )
 
@@ -341,38 +356,38 @@ def hic_4dn(cfg: dict) -> None:
     )
 
     exp_protein_wts = df["exp_protein_wt"].drop_duplicates().to_list()
-    (cfg["data_dir"] / "result" / "hic").mkdir(exist_ok=True, parents=True)
+    (cfg["data_dir"] / "result" / "hic" / "pairs").mkdir(exist_ok=True, parents=True)
 
-    write_hic(
+    write_pair(
         df=df.query("strand1 == '+' and strand2 == '+'").drop(columns="exp_protein_wt"),
-        hic_file=cfg["data_dir"] / "result" / "hic" / "ff.hic",
-        resolutions=[1, 10, 100, 1000],
-        chrom_sizes="chr5.chrom.sizes",
+        pair_file=cfg["data_dir"] / "result" / "hic" / "pairs" / "ff.pairs",
     )
 
     for exp_protein_wt in exp_protein_wts:
-        write_hic(
+        write_pair(
             df=df.query(
                 "exp_protein_wt == @exp_protein_wt and strand1 == '+' and strand2 == '+'"
             ).drop(columns="exp_protein_wt"),
-            hic_file=cfg["data_dir"] / "result" / "hic" / f"{exp_protein_wt}_ff.hic",
-            resolutions=[1, 10, 100, 1000],
-            chrom_sizes="chr5.chrom.sizes",
+            pair_file=cfg["data_dir"]
+            / "result"
+            / "hic"
+            / "pairs"
+            / f"{exp_protein_wt}_ff.pairs",
         )
 
-    write_hic(
+    write_pair(
         df=df.query("strand1 == '-' and strand2 == '-'").drop(columns="exp_protein_wt"),
-        hic_file=cfg["data_dir"] / "result" / "hic" / "rr.hic",
-        resolutions=[1, 10, 100, 1000],
-        chrom_sizes="chr5.chrom.sizes",
+        pair_file=cfg["data_dir"] / "result" / "hic" / "pairs" / "rr.pairs",
     )
 
     for exp_protein_wt in exp_protein_wts:
-        write_hic(
+        write_pair(
             df=df.query(
                 "exp_protein_wt == @exp_protein_wt and strand1 == '-' and strand2 == '-'"
             ).drop(columns="exp_protein_wt"),
-            hic_file=cfg["data_dir"] / "result" / "hic" / f"{exp_protein_wt}_rr.hic",
-            resolutions=[1, 10, 100, 1000],
-            chrom_sizes="chr5.chrom.sizes",
+            pair_file=cfg["data_dir"]
+            / "result"
+            / "hic"
+            / "pairs"
+            / f"{exp_protein_wt}_rr.pairs",
         )

@@ -65,9 +65,10 @@ def parse_block_without_flip_R2(read: pysam.AlignedSegment):
                 yield chrom, block_start, block_end, strand
 
 
-def parse_block_with_flip_R2(read: pysam.AlignedSegment) -> list:
+def parse_block_with_flip(read: pysam.AlignedSegment, flip: str) -> list:
     blocks = list(parse_block_without_flip_R2(read))
-    if read.is_read1:
+    assert flip in ("R1", "R2"), "flip must be either 'R1' or 'R2'"
+    if flip == "R2" and read.is_read1 or flip == "R1" and read.is_read2:
         return blocks
 
     flip_blocks = []
