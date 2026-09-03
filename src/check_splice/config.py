@@ -9,7 +9,8 @@ def pcdh():
             "PPHLN1": "#A52A2A",
             "MPP8": "#800080",
             "TASOR": "#008000",
-            "DIFF": {"INCREASE": "#FF0000", "DECREASE": "#0000FF"},
+            "INCREASE": "#FF0000",
+            "DECREASE": "#0000FF",
         },
         "flip": "R1",  # which reads to flip (R1 or R2)
         "chrom": "chr5",

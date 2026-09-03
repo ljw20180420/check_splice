@@ -5,6 +5,7 @@ import subprocess
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import sh
 from pyarrow import ipc
 
 
@@ -81,10 +82,30 @@ def pair_to_hic(
 
 
 def prepare_gene_bed12(cfg: dict) -> None:
-    df = (
+    gtfToGenePred = sh.Command("gtfToGenePred")
+    gtfToGenePred(
+        "-genePredExt",
+        os.fspath(cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.gtf"),
+        os.fspath(cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.gp"),
+    )
+    df_gp = pd.read_csv(
+        cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.gp", sep="\t", header=None
+    )
+    df_gp[[11] + list(range(1, 15))].to_csv(
+        cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.gp",
+        sep="\t",
+        header=False,
+        index=False,
+    )
+    genePredToBigGenePred = sh.Command("genePredToBigGenePred")
+    genePredToBigGenePred(
+        os.fspath(cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.gp"),
+        os.fspath(cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.bgp"),
+    )
+    df_bgp = (
         pd
         .read_csv(
-            "/home/ljw/sdb1/ucsc/hubs/myHub/lhg19/lhg19.bgp", sep="\t", header=None
+            cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.bgp", sep="\t", header=None
         )[list(range(12))]
         .rename(
             columns={
@@ -102,6 +123,7 @@ def prepare_gene_bed12(cfg: dict) -> None:
                 11: "blockStarts",
             }
         )
+        .sort_values(by=["chrom", "chromStart"], ignore_index=True)
         .query("not name.str.startswith('PCDHA') or blockCount == 4")
         .query(
             "not name.str.startswith('PCDHB') or blockCount == 1 or name == 'PCDHB9'"
@@ -115,6 +137,6 @@ def prepare_gene_bed12(cfg: dict) -> None:
         .reset_index(drop=True)
     )
 
-    df.to_csv(
+    df_bgp.to_csv(
         cfg["data_dir"] / "result" / "hg19.12.bed", sep="\t", header=False, index=False
     )
