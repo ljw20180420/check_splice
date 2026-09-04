@@ -449,8 +449,14 @@ def draw_covers(
     max_heights = []
     for bwfile in [control_f, control_r, treat_f, treat_r]:
         with pyBigWig.open(os.fspath(bwfile)) as bw:
-            max_heights.append(bw.stats(chrom, start, end, type="max")[0])
-    yup = max(max_heights) * 1.1
+            max_height = bw.stats(chrom, start, end, type="max")[0]
+            if max_height is not None:
+                max_heights.append(max_height)
+
+    if max_heights:
+        yup = max(max_heights) * 1.1
+    else:
+        yup = 0
 
     frame = (
         XAxis(name="hg19")
