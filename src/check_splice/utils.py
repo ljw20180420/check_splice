@@ -135,6 +135,9 @@ def prepare_gene_bed12(cfg: dict) -> None:
         .query("name != 'PCDHA10' or blockSizes.str.startswith('2540')")
         .query("name != 'PCDHGA11' or blockSizes.str.startswith('2610')")
         .query("name != 'PCDHGC3' or blockSizes.str.startswith('2581')")
+        .query(
+            "name != 'LOC112267934' and name != 'LOC101926905' and name != 'LOC100419552' and name != 'SLC25A2' and name != 'TAF7' and name != 'RN7SL68P'"
+        )
         .reset_index(drop=True)
     )
 

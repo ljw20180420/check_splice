@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import oxbow as ox
 import pandas as pd
+import pyBigWig
 import pypdf
 from coolbox.api import *
 from dna_features_viewer import GraphicFeature, GraphicRecord
@@ -444,11 +445,19 @@ def draw_covers(
     chrom = cfg[cluster]["chrom"]
     start = cfg[cluster]["start"]
     end = cfg[cluster]["end"]
+
+    max_heights = []
+    for bwfile in [control_f, control_r, treat_f, treat_r]:
+        with pyBigWig.open(os.fspath(bwfile)) as bw:
+            max_heights.append(bw.stats(chrom, start, end, type="max")[0])
+    yup = max(max_heights) * 1.1
+
     frame = (
         XAxis(name="hg19")
         + BigWig(
             os.fspath(control_f),
-            style="fill",
+            min_value=0,
+            max_value=yup,
             color=cfg["color"]["WT"],
             height=5,
             title="control",
@@ -461,7 +470,8 @@ def draw_covers(
         )
         + BigWig(
             os.fspath(control_r),
-            style="fill",
+            min_value=0,
+            max_value=yup,
             color=cfg["color"]["WT"],
             height=5,
             title="control",
@@ -469,7 +479,8 @@ def draw_covers(
         )
         + BigWig(
             os.fspath(treat_f),
-            style="fill",
+            min_value=0,
+            max_value=yup,
             color=cfg["color"][protein],
             height=5,
             title=treat,
@@ -482,7 +493,8 @@ def draw_covers(
         )
         + BigWig(
             os.fspath(treat_r),
-            style="fill",
+            min_value=0,
+            max_value=yup,
             color=cfg["color"][protein],
             height=5,
             title=treat,
@@ -574,21 +586,29 @@ def draw_reads(
             / "bam"
             / "precursor"
             / "merge"
-            / f"{exp}_{protein}_control.f.bam"
+            / f"{exp}_{protein}_control.f.unify.bam"
         )
         control_r = (
             cfg["data_dir"]
             / "bam"
             / "precursor"
             / "merge"
-            / f"{exp}_{protein}_control.r.bam"
+            / f"{exp}_{protein}_control.r.unify.bam"
         )
     else:
         control_f = (
-            cfg["data_dir"] / "bam" / "precursor" / "merge" / f"{exp}_WT_control.f.bam"
+            cfg["data_dir"]
+            / "bam"
+            / "precursor"
+            / "merge"
+            / f"{exp}_WT_control.f.unify.bam"
         )
         control_r = (
-            cfg["data_dir"] / "bam" / "precursor" / "merge" / f"{exp}_WT_control.r.bam"
+            cfg["data_dir"]
+            / "bam"
+            / "precursor"
+            / "merge"
+            / f"{exp}_WT_control.r.unify.bam"
         )
 
     treat = "delta" if exp != "clip" else "tag"
@@ -598,22 +618,22 @@ def draw_reads(
         / "bam"
         / "precursor"
         / "merge"
-        / f"{exp}_{protein}_{treat}.f.bam"
+        / f"{exp}_{protein}_{treat}.f.unify.bam"
     )
     treat_r = (
         cfg["data_dir"]
         / "bam"
         / "precursor"
         / "merge"
-        / f"{exp}_{protein}_{treat}.r.bam"
+        / f"{exp}_{protein}_{treat}.r.unify.bam"
     )
 
     (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
     df_se = get_precursor_pos(cfg)
     for name, se, pos in zip(df_se["name"], df_se["se"], df_se["pos"]):
         chrom = cfg["chrom"]
-        start = pos - 1000
-        end = pos + 1000
+        start = pos - 150
+        end = pos + 150
         frame = (
             XAxis(name="hg19")
             + BAM(

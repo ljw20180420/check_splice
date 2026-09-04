@@ -247,6 +247,7 @@ def merge_bam_by_exp_protein_treat(cfg: dict) -> None:
                         *bam_files,
                     )
                     samtools("index", os.fspath(merge_bam))
+
                     with pysam.AlignmentFile(merge_bam, "rb") as bam:
                         mapped_count = bam.mapped
                     if mapped_count > 0:
@@ -269,3 +270,13 @@ def merge_bam_by_exp_protein_treat(cfg: dict) -> None:
                         ) as bw:
                             bw.addHeader([("chr5", 180915260)])
                             bw.addEntries("chr5", [mid], values=[0.0], span=1)
+
+                    with pysam.AlignmentFile(merge_bam, "rb") as ib:
+                        with pysam.AlignmentFile(
+                            merge_bam.with_suffix(".unify.bam"), "wb", template=ib
+                        ) as ob:
+                            for read in ib.fetch():
+                                read.is_forward = strand == "f"
+                                ob.write(read)
+
+                    samtools("index", os.fspath(merge_bam.with_suffix(".unify.bam")))
