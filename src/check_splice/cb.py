@@ -2,10 +2,13 @@ import os
 import shutil
 
 import matplotlib.pyplot as plt
+import numpy as np
+import oxbow as ox
 import pandas as pd
 import pypdf
-import pysam
 from coolbox.api import *
+from dna_features_viewer import GraphicFeature, GraphicRecord
+from dna_features_viewer.compute_features_levels import compute_features_levels
 
 from .sam import get_precursor_pos
 
@@ -365,7 +368,6 @@ def draw_links(
             color=cfg["color"]["INCREASE"],
             height=5,
             title="diff",
-            orientation="inverted",
         )
         + BEDPECoverage(
             os.fspath(diff_r_decrease),
@@ -533,10 +535,32 @@ def draw_all(cfg: dict):
 
 
 def estimate_height(bam_file: os.PathLike, chrom: str, start: int, end: int) -> float:
-    with pysam.AlignmentFile(bam_file, "rb") as bdf:
-        count = sum(1 for read in bdf.fetch(chrom, start, end))
+    ds = ox.from_bam(bam_file)
+    sub = ds.regions(f"{chrom}:{start}-{end}")
+    df = sub.pd()
+    rev_flag = np.bitwise_and(df["flag"], 0b10000) != 0
+    features = []
+    for idx, row in df.iterrows():
+        start = row["pos"] - start
+        end = row["pos"] + len(row["seq"]) - start
+        strand = -1 if rev_flag.iloc[idx] else 1
+        gf = GraphicFeature(
+            start=start,
+            end=end,
+            strand=strand,
+        )
+        features.append(gf)
+    record = GraphicRecord(sequence_length=end - start, features=features)
 
-    return count * 0.5
+    feature_levels = compute_features_levels(record.features)
+    if feature_levels:
+        max_track_level = max(feature_levels.values())
+        total_tracks = max_track_level + 1  # 0-indexed levels
+    else:
+        total_tracks = 1  # Fallback if no features
+    calculated_height = 1.5 + (total_tracks * 0.4)
+
+    return calculated_height
 
 
 def draw_reads(
@@ -588,8 +612,8 @@ def draw_reads(
     df_se = get_precursor_pos(cfg)
     for name, se, pos in zip(df_se["name"], df_se["se"], df_se["pos"]):
         chrom = cfg["chrom"]
-        start = pos - 150
-        end = pos + 150
+        start = pos - 1000
+        end = pos + 1000
         frame = (
             XAxis(name="hg19")
             + BAM(

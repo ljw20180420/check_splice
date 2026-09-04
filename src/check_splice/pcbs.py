@@ -3,7 +3,10 @@ import os
 import pandas as pd
 
 
-def get_pCBS(shift_file: os.PathLike, cpcdh_file: os.PathLike) -> pd.DataFrame:
+def get_pCBS(cfg: dict) -> None:
+    shift_file = "pCBS_shift.csv"
+    cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
+
     df_shift = pd.read_csv(shift_file, header=0).assign(
         name=lambda df: df["gene"].str.upper()
     )
@@ -19,4 +22,8 @@ def get_pCBS(shift_file: os.PathLike, cpcdh_file: os.PathLike) -> pd.DataFrame:
         start=lambda df: df["end"] - 27,
     )[["chrom", "start", "end", "name"]].assign(score=".", strand="+")
 
-    return df
+    df.to_csv(
+        cfg["data_dir"] / "result" / "pCBS.bed", sep="\t", header=False, index=False
+    )
+    (cfg["data_dir"] / "result" / "pCBS.bed.bgz").unlink(missing_ok=True)
+    (cfg["data_dir"] / "result" / "pCBS.bed.bgz.tbi").unlink(missing_ok=True)

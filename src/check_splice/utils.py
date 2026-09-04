@@ -128,6 +128,7 @@ def prepare_gene_bed12(cfg: dict) -> None:
         .query(
             "not name.str.startswith('PCDHB') or blockCount == 1 or name == 'PCDHB9'"
         )
+        .query("not name.str.startswith('PCDHB@')")
         .query("not name.str.startswith('PCDHG') or blockCount == 4")
         .query("name != 'PCDHA1' or blockSizes.str.startswith('2545')")
         .query("name != 'PCDHA6' or blockSizes.str.startswith('2526')")
@@ -140,3 +141,5 @@ def prepare_gene_bed12(cfg: dict) -> None:
     df_bgp.to_csv(
         cfg["data_dir"] / "result" / "hg19.12.bed", sep="\t", header=False, index=False
     )
+    (cfg["data_dir"] / "result" / "hg19.12.bed.bgz").unlink(missing_ok=True)
+    (cfg["data_dir"] / "result" / "hg19.12.bed.bgz.tbi").unlink(missing_ok=True)
