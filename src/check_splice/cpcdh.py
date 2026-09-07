@@ -183,3 +183,10 @@ def get_cpcdh_intron(df: pd.DataFrame) -> pd.DataFrame:
         .astype({"start": "int64", "end": "int64"})
         .sort_values(by=["type", "start", "end"], ignore_index=True)
     )
+
+
+def get_cpcdh(cfg: dict) -> None:
+    df = get_cpcdh_exon(cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.gtf.gz")
+    df = get_cpcdh_intron(df)
+    (cfg["data_dir"] / "result").mkdir(exist_ok=True, parents=True)
+    df.to_csv(cfg["data_dir"] / "result" / "cpcdh.csv", index=False)

@@ -17,7 +17,7 @@ def swap_elements(vec: list, a: str, b: str) -> list:
     return vec
 
 
-def splice(cfg: dict) -> pd.DataFrame:
+def splice(cfg: dict) -> None:
     cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
     df_cpcdh = pd.read_csv(cpcdh_file, header=0)
     intron_names = df_cpcdh.query("type=='intron'")["name"].to_list()
@@ -102,7 +102,7 @@ def splice(cfg: dict) -> pd.DataFrame:
 
     df = df[swap_elements(df.columns.to_list(), "cover.start", "cover.end")]
 
-    return df
+    df.to_csv(cfg["data_dir"] / "result" / "splice.csv", index=False)
 
 
 def around(
@@ -168,7 +168,7 @@ def around(
         .reset_index()
     )
 
-    yield df_around_agg, "agg"
+    yield df_around_agg, "agg", "count"
 
     df_total = (
         pd
@@ -214,11 +214,11 @@ def around(
 
         df_slice = df_slice.assign(
             count=lambda df, total_count=total_count: (
-                df["count"] / total_count * 1000_000
+                df["count"] / total_count * 1_000_000
             )
         )
 
-        yield df_slice, f"n_{exp_protein_wt}"
+        yield df_slice, exp_protein_wt, "RPM"
 
 
 def read_start_around_exon_start(cfg: dict) -> None:
@@ -243,10 +243,12 @@ def read_start_around_exon_start(cfg: dict) -> None:
 
     pdf_files = []
     with pypdf.PdfWriter() as pdf_writer:
-        for df, slice in around(
+        for df, title, unit in around(
             cfg, centers, center_names, center_axis_name, extend, targets, filter
         ):
-            pdf_file = around_heatmap(cfg, df, center_names, center_axis_name, slice)
+            pdf_file = around_heatmap(
+                cfg, df, center_names, center_axis_name, title, unit
+            )
             pdf_writer.append(pdf_file)
             pdf_files.append(pdf_file)
 
@@ -282,10 +284,12 @@ def inrange_end_around_exon_end(cfg: dict) -> None:
 
     pdf_files = []
     with pypdf.PdfWriter() as pdf_writer:
-        for df, slice in around(
+        for df, title, unit in around(
             cfg, centers, center_names, center_axis_name, extend, targets, filter
         ):
-            pdf_file = around_heatmap(cfg, df, center_names, center_axis_name, slice)
+            pdf_file = around_heatmap(
+                cfg, df, center_names, center_axis_name, title, unit
+            )
             pdf_writer.append(pdf_file)
             pdf_files.append(pdf_file)
 

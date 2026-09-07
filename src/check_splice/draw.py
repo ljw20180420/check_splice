@@ -10,7 +10,6 @@ from plotnine import (
     geom_text,
     geom_tile,
     ggplot,
-    ggtitle,
     labs,
     scale_fill_gradient,
     scale_y_discrete,
@@ -32,15 +31,15 @@ def splice_heatmap(cfg: dict):
     ).assign(**{
         "splice (RPM)": lambda df: df["connect"] / df["total_count"] * 1000_000,
         "precursor (RPM)": lambda df: df["cover.start"] / df["total_count"] * 1000_000,
-        "precursor to splice": lambda df: (df["cover.start"] / df["connect"]).replace(
-            float("inf"), float("nan")
+        "splice %": lambda df: (
+            df["connect"] / (df["cover.start"] + df["connect"]) * 100
         ),
     })
 
     targets = [
         "splice (RPM)",
         "precursor (RPM)",
-        "precursor to splice",
+        "splice %",
     ]
     for target in targets:
         df = df.assign(**{
@@ -54,11 +53,11 @@ def splice_heatmap(cfg: dict):
                         data=df.query("name.str.startswith('PCDHA') and exp == @exp"),
                         mapping=aes(x="name", y="protein_wt"),
                     )
-                    + ggtitle(exp)
                     + geom_tile(aes(fill=target), color="#000000")
                     + geom_text(aes(label=f"{target}_round"), size=6)
                     + scale_fill_gradient(low="#FFFFFF", high="#FF0000")
                     + theme(axis_text_x=element_text(angle=90, ma="right"))
+                    + labs(title=exp, x="splice", y="sample")
                 ).save(cfg["data_dir"] / "result" / f"{target}_{exp}.pdf")
 
                 pdf_writer.append(cfg["data_dir"] / "result" / f"{target}_{exp}.pdf")
@@ -75,9 +74,9 @@ def around_heatmap(
     df: pd.DataFrame,
     center_names: Iterable[str],
     center_axis_name: str,
-    slice: str,
+    title: str,
+    unit: str,
 ) -> os.PathLike:
-    title = f"{slice}"
     pdf_file = cfg["data_dir"] / "result" / f"{title}.pdf"
 
     (
@@ -90,7 +89,7 @@ def around_heatmap(
         + scale_fill_gradient(low="#FFFFFF", high="#FF0000")
         + scale_y_discrete(limits=list(center_names)[::-1])
         + theme(axis_text_x=element_text(angle=90, ma="right"), figure_size=(20, 20))
-        + labs(title=title)
+        + labs(title=title, x="position", y="exon", fill=unit)
     ).save(pdf_file)
 
     return pdf_file

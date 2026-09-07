@@ -32,7 +32,7 @@ def pcdh():
             "end": 140964431,
         },
         "data_dir": Path("/home/ljw/sdc1/hush"),
-        "cover_threshold": 3,
+        "cover_threshold": 6,
         "tss_extend": 30,
         "exon_end_extend": 30,
     }
