@@ -146,3 +146,10 @@ def prepare_gene_bed12(cfg: dict) -> None:
     )
     (cfg["data_dir"] / "result" / "hg19.12.bed.bgz").unlink(missing_ok=True)
     (cfg["data_dir"] / "result" / "hg19.12.bed.bgz.tbi").unlink(missing_ok=True)
+
+
+def get_treat(df: pd.DataFrame) -> pd.Series:
+    treat = df["clone"].map(lambda ele: "control" if ele.startswith("WT") else "delta")
+    treat = treat.where((df["exp"] != "clip") | (treat == "control"), "tag")
+
+    return treat

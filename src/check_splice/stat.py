@@ -6,7 +6,7 @@ import pandas as pd
 import pypdf
 
 from .draw import around_heatmap
-from .utils import write_pair
+from .utils import get_treat, write_pair
 
 matplotlib.use("agg")
 
@@ -46,30 +46,39 @@ def splice(cfg: dict) -> None:
     df_total = pd.read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
     df_total = (
         df_total
-        .assign(is_WT=lambda df: df["clone"].str.startswith("WT"))
-        .groupby(["exp", "protein", "is_WT"])["total_count"]
+        .assign(treat=lambda df: get_treat(df))
+        .groupby(["exp", "protein", "treat"])["total_count"]
         .sum()
         .reset_index()
     )
 
     df = (
         df
-        .assign(is_WT=lambda df: df["clone"].str.startswith("WT"))
-        .groupby(["exp", "protein", "is_WT"])
-        .agg(**({
+        .assign(
+            treat=lambda df: df["clone"].map(
+                lambda ele: "control" if ele.startswith("WT") else "delta"
+            )
+        )
+        .assign(
+            treat=lambda df: df["treat"].where(
+                (df["exp"] != "clip") | (df["treat"] == "control"), "tag"
+            )
+        )
+        .groupby(["exp", "protein", "treat"])
+        .agg(**{
             column: pd.NamedAgg(column=column, aggfunc="sum") for column in columns
-        }))
+        })
         .copy()
         .reset_index()
         .merge(
-            df_total, how="left", on=["exp", "protein", "is_WT"], validate="many_to_one"
+            df_total, how="left", on=["exp", "protein", "treat"], validate="many_to_one"
         )
     )
 
     df = (
         df
         .melt(
-            id_vars=["exp", "protein", "is_WT", "total_count"],
+            id_vars=["exp", "protein", "treat", "total_count"],
             value_vars=columns,
             var_name="opt_intron",
             value_name="count",
@@ -80,7 +89,7 @@ def splice(cfg: dict) -> None:
         )
         .pivot_table(
             values="count",
-            index=["exp", "protein", "is_WT", "total_count", "intron"],
+            index=["exp", "protein", "treat", "total_count", "intron"],
             columns="opt",
         )
         .reset_index()
@@ -96,7 +105,7 @@ def splice(cfg: dict) -> None:
             right_on="name",
             validate="many_to_one",
         )
-        .sort_values(by=["exp", "protein", "is_WT", "start"], ignore_index=True)
+        .sort_values(by=["exp", "protein", "treat", "start"], ignore_index=True)
         .drop(columns="intron")
     )
 
@@ -303,7 +312,7 @@ def inrange_end_around_exon_end(cfg: dict) -> None:
         pdf_file.unlink()
 
 
-def hic_4dn(cfg: dict) -> None:
+def get_pairs(cfg: dict) -> None:
     result_file = cfg["data_dir"] / "result" / "reads.feather"
     df = pd.read_feather(result_file).assign(
         exp_protein_wt=lambda df: (

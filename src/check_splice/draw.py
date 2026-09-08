@@ -25,9 +25,7 @@ def splice_heatmap(cfg: dict):
         name=lambda df: pd.Categorical(
             df["name"], categories=df["name"].drop_duplicates(), ordered=True
         ),
-        protein_wt=lambda df: (
-            df["protein"] + "_" + df["is_WT"].map({True: "control", False: "delta"})
-        ),
+        protein_treat=lambda df: df["protein"] + "_" + df["treat"],
     ).assign(**{
         "splice (RPM)": lambda df: df["connect"] / df["total_count"] * 1000_000,
         "precursor (RPM)": lambda df: df["cover.start"] / df["total_count"] * 1000_000,
@@ -48,10 +46,11 @@ def splice_heatmap(cfg: dict):
     with pypdf.PdfWriter() as pdf_writer:
         for exp in df["exp"].unique():
             for target in targets:
+                df_slice = df.query("name.str.startswith('PCDHA') and exp == @exp")
                 (
                     ggplot(
-                        data=df.query("name.str.startswith('PCDHA') and exp == @exp"),
-                        mapping=aes(x="name", y="protein_wt"),
+                        data=df_slice,
+                        mapping=aes(x="name", y="protein_treat"),
                     )
                     + geom_tile(aes(fill=target), color="#000000")
                     + geom_text(aes(label=f"{target}_round"), size=6)
