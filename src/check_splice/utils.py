@@ -3,6 +3,7 @@ import pathlib
 import shutil
 import subprocess
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyBigWig
@@ -169,6 +170,18 @@ def get_bw(
         with pyBigWig.open(os.fspath(bamfile.with_suffix(".bw")), "w") as bw:
             bw.addHeader([(chrom, chrom_size)])
             bw.addEntries(chrom, [mid], values=[0.0], span=1)
+
+
+def bw_merge_adjacent_intervals_with_identical_values(
+    starts: np.ndarray, ends: np.ndarray, values: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    change_indices = np.where(np.diff(values) != 0)[0] + 1
+
+    ends = np.concatenate((starts[change_indices], [ends[-1]]))
+    starts = starts[np.concatenate(([0], change_indices))]
+    values = values[np.concatenate(([0], change_indices))]
+
+    return starts, ends, values
 
 
 def get_precursor_pos(cfg: dict) -> pd.DataFrame:

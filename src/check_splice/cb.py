@@ -13,7 +13,11 @@ from coolbox.api import *
 from dna_features_viewer import GraphicFeature, GraphicRecord
 from dna_features_viewer.compute_features_levels import compute_features_levels
 
-from .utils import get_precursor_pos, get_total_count
+from .utils import (
+    bw_merge_adjacent_intervals_with_identical_values,
+    get_precursor_pos,
+    get_total_count,
+)
 
 
 def pairs_to_bedpe(cfg: dict) -> None:
@@ -255,6 +259,252 @@ def diff_bedpe_all(cfg: dict) -> None:
                 diff_bedpe(cfg, exp, protein, orientation)
 
 
+def get_exon_pre(cfg: dict):
+    df_cpcdh = (
+        pd
+        .read_csv(cfg["data_dir"] / "result" / "cpcdh.csv", header=0)
+        .query("type=='exon' and name.str.startswith('PCDHA')")
+        .reset_index(drop=True)
+    )
+    df_cpcdh = df_cpcdh.assign(
+        pre_start=lambda df: (
+            [df.loc[0, "start"].item() - cfg["size_before_first"]]
+            + df["end"].to_list()[:-1]
+        ),
+        pre_end=lambda df: df["start"],
+    )
+
+    dfs = []
+    for exp in ["total", "rna", "pro", "clip"]:
+        for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
+            for wt in [True, False]:
+                if wt:
+                    treat = "control"
+                else:
+                    if exp != "clip":
+                        treat = "delta"
+                    else:
+                        treat = "tag"
+
+                bam_file = (
+                    cfg["data_dir"] / "bam" / "merge" / f"{exp}_{protein}_{treat}.bam"
+                )
+
+                if not bam_file.exists():
+                    continue
+
+                with pysam.AlignmentFile(os.fspath(bam_file)) as sam:
+                    exon_counts = []
+                    pre_counts = []
+                    for chrom, start, end, pre_start, pre_end in zip(
+                        df_cpcdh["chrom"],
+                        df_cpcdh["start"],
+                        df_cpcdh["end"],
+                        df_cpcdh["pre_start"],
+                        df_cpcdh["pre_end"],
+                    ):
+                        exon_count = 0
+                        for read in sam.fetch(chrom, start, end):
+                            if read.is_secondary:
+                                continue
+                            if not read.is_mapped:
+                                continue
+                            if read.is_supplementary:
+                                continue
+
+                            exon_count += 1
+
+                        exon_counts.append(exon_count)
+
+                        pre_count = 0
+                        for read in sam.fetch(chrom, pre_start, pre_end):
+                            if read.is_secondary:
+                                continue
+                            if not read.is_mapped:
+                                continue
+                            if read.is_supplementary:
+                                continue
+
+                            pre_count += 1
+
+                        pre_counts.append(pre_count)
+
+                dfs.append(
+                    df_cpcdh.copy()[
+                        ["chrom", "start", "end", "name", "pre_start", "pre_end"]
+                    ].assign(
+                        exon_count=exon_counts,
+                        pre_count=pre_counts,
+                        exp=exp,
+                        protein=protein,
+                        treat=treat,
+                    )
+                )
+
+    pd.concat(dfs, ignore_index=True).to_csv(
+        cfg["data_dir"] / "result" / "exon_pre.csv", index=False
+    )
+
+
+def construct_artifact_bw(cfg: dict) -> None:
+    df_exon_pre = pd.read_csv(cfg["data_dir"] / "result" / "exon_pre.csv", header=0)
+    df_splice = (
+        pd
+        .read_csv(cfg["data_dir"] / "result" / "splice.csv", header=0)
+        .query("name.str.startswith('PCDHA')")
+        .reset_index(drop=True)
+    )
+    for exp in ["total", "rna", "pro", "clip"]:
+        for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
+            for wt in [True, False]:
+                if wt:
+                    treat = "control"
+                else:
+                    if exp != "clip":
+                        treat = "delta"
+                    else:
+                        treat = "tag"
+
+                df_exon_pre_slice = df_exon_pre.query(
+                    "exp == @exp and protein == @protein and treat == @treat"
+                ).assign(**{
+                    "exon %": lambda df: (
+                        df["exon_count"] / (df["exon_count"] + df["pre_count"]) * 100
+                    )
+                })
+
+                if len(df_exon_pre_slice) == 0:
+                    continue
+
+                df_splice_slice = df_splice.query(
+                    "exp == @exp and protein == @protein and treat == @treat"
+                ).assign(**{
+                    "splice %": lambda df: (
+                        df["connect"] / (df["connect"] + df["cover.start"]) * 100
+                    )
+                })
+
+                (cfg["data_dir"] / "result" / "bw").mkdir(exist_ok=True, parents=True)
+                bw_file = (
+                    cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
+                )
+
+                df_pv = (
+                    pd
+                    .DataFrame({
+                        "start": df_exon_pre_slice["start"].to_list()
+                        + df_splice_slice["start"].to_list(),
+                        "value": df_exon_pre_slice["exon %"].to_list()
+                        + df_splice_slice["splice %"].fillna(0.0).to_list(),
+                    })
+                    .assign(
+                        end=lambda df: df["start"] + 1,
+                    )[["start", "end", "value"]]
+                    .sort_values(by=["start"])
+                )
+
+                df_pv = (
+                    pd
+                    .concat(
+                        [
+                            pd.DataFrame({
+                                "start": [
+                                    cfg["start"],
+                                    df_pv["end"].to_list()[-1],
+                                ],
+                                "end": [
+                                    df_pv["start"].to_list()[0],
+                                    cfg["end"],
+                                ],
+                                "value": 0.0,
+                            }),
+                            df_pv,
+                            pd.DataFrame({
+                                "start": df_pv["end"].to_list()[:-1],
+                                "end": df_pv["start"].to_list()[1:],
+                                "value": 0.0,
+                            }),
+                        ],
+                        axis=0,
+                    )
+                    .assign(chrom="chr5")
+                    .sort_values(by=["chrom", "start"])
+                )
+
+                with pyBigWig.open(os.fspath(bw_file), "w") as bw:
+                    bw.addHeader([("chr5", 180915260)])
+                    bw.addEntries(
+                        df_pv["chrom"].to_list(),
+                        df_pv["start"].to_list(),
+                        ends=df_pv["end"].to_list(),
+                        values=df_pv["value"].to_list(),
+                    )
+
+
+def construct_diff_bw(cfg: dict) -> None:
+    chrom = cfg["chrom"]
+    start = cfg["start"]
+    end = cfg["end"]
+    for exp in ["total", "rna", "pro", "clip"]:
+        for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
+            if exp != "clip":
+                control_bw = (
+                    cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_control.bw"
+                )
+            else:
+                control_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_WT_control.bw"
+
+            treat = "delta" if exp != "clip" else "tag"
+
+            treat_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
+
+            if not control_bw.exists() or not treat_bw.exists():
+                continue
+
+            diff_up_bw = (
+                cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_diff.up.bw"
+            )
+            diff_down_bw = (
+                cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_diff.down.bw"
+            )
+
+            with (
+                pyBigWig.open(os.fspath(control_bw)) as cb,
+                pyBigWig.open(os.fspath(treat_bw)) as tb,
+                pyBigWig.open(os.fspath(diff_up_bw), "w") as dub,
+                pyBigWig.open(os.fspath(diff_down_bw), "w") as ddb,
+            ):
+                control_values = cb.values(chrom, start, end, numpy=True)
+                treat_values = tb.values(chrom, start, end, numpy=True)
+                diff_values = np.nan_to_num(treat_values) - np.nan_to_num(
+                    control_values
+                )
+
+                starts, ends, diff_values = (
+                    bw_merge_adjacent_intervals_with_identical_values(
+                        starts=np.arange(start, end),
+                        ends=np.arange(start + 1, end + 1),
+                        values=diff_values,
+                    )
+                )
+
+                dub.addHeader([("chr5", 180915260)])
+                dub.addEntries(
+                    [chrom] * len(starts),
+                    starts,
+                    ends=ends,
+                    values=np.maximum(diff_values, 0.0),
+                )
+
+                ddb.addHeader([("chr5", 180915260)])
+                ddb.addEntries(
+                    [chrom] * len(starts),
+                    starts,
+                    ends=ends,
+                    values=-np.minimum(diff_values, 0.0),
+                )
+
+
 def draw_links(
     cfg: dict,
     exp: str,
@@ -427,166 +677,23 @@ def draw_links(
     return link_file
 
 
-def get_exon_pre(cfg: dict):
-    df_cpcdh = (
-        pd
-        .read_csv(cfg["data_dir"] / "result" / "cpcdh.csv", header=0)
-        .query("type=='exon' and name.str.startswith('PCDHA')")
-        .reset_index(drop=True)
-    )
-    df_cpcdh = df_cpcdh.assign(
-        pre_start=lambda df: (
-            [df.loc[0, "start"].item() - cfg["size_before_first"]]
-            + df["end"].to_list()[:-1]
-        ),
-        pre_end=lambda df: df["start"],
-    )
-
-    dfs = []
-    for exp in ["total", "rna", "pro", "clip"]:
-        for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
-            for wt in [True, False]:
-                if wt:
-                    treat = "control"
-                else:
-                    if exp != "clip":
-                        treat = "delta"
-                    else:
-                        treat = "tag"
-
-                bam_file = (
-                    cfg["data_dir"] / "bam" / "merge" / f"{exp}_{protein}_{treat}.bam"
-                )
-
-                if not bam_file.exists():
-                    continue
-
-                with pysam.AlignmentFile(os.fspath(bam_file)) as sam:
-                    exon_counts = []
-                    pre_counts = []
-                    for chrom, start, end, pre_start, pre_end in zip(
-                        df_cpcdh["chrom"],
-                        df_cpcdh["start"],
-                        df_cpcdh["end"],
-                        df_cpcdh["pre_start"],
-                        df_cpcdh["pre_end"],
-                    ):
-                        exon_count = 0
-                        for read in sam.fetch(chrom, start, end):
-                            if read.is_secondary:
-                                continue
-                            if not read.is_mapped:
-                                continue
-                            if read.is_supplementary:
-                                continue
-
-                            exon_count += 1
-
-                        exon_counts.append(exon_count)
-
-                        pre_count = 0
-                        for read in sam.fetch(chrom, pre_start, pre_end):
-                            if read.is_secondary:
-                                continue
-                            if not read.is_mapped:
-                                continue
-                            if read.is_supplementary:
-                                continue
-
-                            pre_count += 1
-
-                        pre_counts.append(pre_count)
-
-                dfs.append(
-                    df_cpcdh.copy()[
-                        ["chrom", "start", "end", "name", "pre_start", "pre_end"]
-                    ].assign(
-                        exon_count=exon_counts,
-                        pre_count=pre_counts,
-                        exp=exp,
-                        protein=protein,
-                        treat=treat,
-                    )
-                )
-
-    pd.concat(dfs, ignore_index=True).to_csv(
-        cfg["data_dir"] / "result" / "exon_pre.csv", index=False
-    )
-
-
-def construct_artifact_bw(cfg: dict) -> None:
-    df_exon_pre = pd.read_csv(cfg["data_dir"] / "result" / "exon_pre.csv", header=0)
-    df_splice = (
-        pd
-        .read_csv(cfg["data_dir"] / "result" / "splice.csv", header=0)
-        .query("name.str.startswith('PCDHA')")
-        .reset_index(drop=True)
-    )
-    for exp in ["total", "rna", "pro", "clip"]:
-        for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
-            for wt in [True, False]:
-                if wt:
-                    treat = "control"
-                else:
-                    if exp != "clip":
-                        treat = "delta"
-                    else:
-                        treat = "tag"
-
-                df_exon_pre_slice = df_exon_pre.query(
-                    "exp == @exp and protein == @protein and treat == @treat"
-                ).assign(**{
-                    "exon %": lambda df: (
-                        df["exon_count"] / (df["exon_count"] + df["pre_count"])
-                    )
-                })
-
-
-def draw_covers(
+def draw_pre_exons(
     cfg: dict,
     exp: str,
     protein: str,
     cluster: str,
 ) -> os.PathLike:
     if exp != "clip":
-        control_f = (
-            cfg["data_dir"]
-            / "bam"
-            / "precursor"
-            / "merge"
-            / f"{exp}_{protein}_control.f.bw"
-        )
-        control_r = (
-            cfg["data_dir"]
-            / "bam"
-            / "precursor"
-            / "merge"
-            / f"{exp}_{protein}_control.r.bw"
-        )
+        control_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_control.bw"
     else:
-        control_f = (
-            cfg["data_dir"] / "bam" / "precursor" / "merge" / f"{exp}_WT_control.f.bw"
-        )
-        control_r = (
-            cfg["data_dir"] / "bam" / "precursor" / "merge" / f"{exp}_WT_control.r.bw"
-        )
+        control_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_WT_control.bw"
 
     treat = "delta" if exp != "clip" else "tag"
 
-    treat_f = (
-        cfg["data_dir"]
-        / "bam"
-        / "precursor"
-        / "merge"
-        / f"{exp}_{protein}_{treat}.f.bw"
-    )
-    treat_r = (
-        cfg["data_dir"]
-        / "bam"
-        / "precursor"
-        / "merge"
-        / f"{exp}_{protein}_{treat}.r.bw"
-    )
+    treat_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
+
+    diff_up_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_diff.up.bw"
+    diff_down_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_diff.down.bw"
 
     (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
 
@@ -595,27 +702,20 @@ def draw_covers(
     end = cfg[cluster]["end"]
 
     max_heights = []
-    for bwfile in [control_f, control_r, treat_f, treat_r]:
+    for bwfile in [control_bw, treat_bw]:
         with pyBigWig.open(os.fspath(bwfile)) as bw:
             max_height = bw.stats(chrom, start, end, type="max")[0]
             if max_height is not None:
                 max_heights.append(max_height)
 
     if max_heights:
-        yup = max(max_heights) * 1.1
+        yup = min(max(max_heights) * 1.1, 100)
     else:
         yup = 0
 
+    height = 5
     frame = (
         XAxis(name="hg19")
-        + BigWig(
-            os.fspath(control_f),
-            min_value=0,
-            max_value=yup,
-            color=cfg["color"]["WT"],
-            height=5,
-            title="control",
-        )
         + BED(
             os.fspath(cfg["data_dir"] / "result" / "hg19.12.bed"),
             display="collapsed",
@@ -623,51 +723,52 @@ def draw_covers(
             title=cluster,
         )
         + BigWig(
-            os.fspath(control_r),
+            os.fspath(control_bw),
             min_value=0,
             max_value=yup,
             color=cfg["color"]["WT"],
-            height=5,
+            height=height,
             title="control",
-            orientation="inverted",
         )
         + BigWig(
-            os.fspath(treat_f),
+            os.fspath(treat_bw),
             min_value=0,
             max_value=yup,
             color=cfg["color"][protein],
-            height=5,
+            height=height,
             title=treat,
-        )
-        + BED(
-            os.fspath(cfg["data_dir"] / "result" / "hg19.12.bed"),
-            display="collapsed",
-            labels=False,
-            title=cluster,
         )
         + BigWig(
-            os.fspath(treat_r),
+            os.fspath(diff_up_bw),
             min_value=0,
             max_value=yup,
-            color=cfg["color"][protein],
-            height=5,
-            title=treat,
+            color=cfg["color"]["INCREASE"],
+            height=height,
+            title="increase",
+        )
+        + BigWig(
+            os.fspath(diff_down_bw),
+            min_value=0,
+            max_value=yup,
+            color=cfg["color"]["DECREASE"],
+            height=height,
+            title="decrease",
             orientation="inverted",
         )
         + FrameTitle(protein)
     )
-    link_file = (
+    pre_exon_file = (
         cfg["data_dir"]
         / "result"
         / "hic"
         / "draw"
-        / f"{exp}_{protein}_{cluster}_covers.pdf"
+        / f"{exp}_{protein}_{cluster}_pre_exon.pdf"
     )
     fig = frame.plot(chrom, start, end)
-    fig.savefig(os.fspath(link_file))
+    fig.savefig(os.fspath(pre_exon_file))
     plt.close(fig)
 
-    return link_file
+    return pre_exon_file
 
 
 def draw_all(cfg: dict):
@@ -677,6 +778,15 @@ def draw_all(cfg: dict):
             for protein in ["NP220", "MPP8", "PPHLN1", "TASOR"]:
                 for cluster in ["alpha"]:
                     pdf_file = draw_links(
+                        cfg,
+                        exp=exp,
+                        protein=protein,
+                        cluster=cluster,
+                    )
+                    pdf_writer.append(pdf_file)
+                    pdf_files.append(pdf_file)
+
+                    pdf_file = draw_pre_exons(
                         cfg,
                         exp=exp,
                         protein=protein,
