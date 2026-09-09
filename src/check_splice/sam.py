@@ -148,7 +148,7 @@ def merge_bam(cfg: dict) -> None:
                 samtools("index", os.fspath(merge_bam))
 
 
-def filter_precursor_reads(cfg: dict, bam_file: os.PathLike, strand: str) -> None:
+def filter_precursor_bam(cfg: dict, bam_file: os.PathLike, strand: str) -> None:
     df_se = get_precursor_pos(cfg)
     with pysam.AlignmentFile(bam_file, "rb") as infile:
         filtered_bam_file = (
@@ -193,7 +193,7 @@ def filter_precursor_reads(cfg: dict, bam_file: os.PathLike, strand: str) -> Non
                         break
 
 
-def filter_splice_reads(cfg: dict, bam_file: os.PathLike) -> None:
+def filter_splice_bam(cfg: dict, bam_file: os.PathLike) -> None:
     with pysam.AlignmentFile(bam_file, "rb") as infile:
         filtered_bam_file = bam_file.with_name("splice") / bam_file.name
         with pysam.AlignmentFile(filtered_bam_file, "wb", template=infile) as outfile:
@@ -216,8 +216,9 @@ def filter_splice_reads(cfg: dict, bam_file: os.PathLike) -> None:
                         break
 
 
-def filter_precursor_reads_all(cfg: dict) -> None:
+def filter_bam_all(cfg: dict) -> None:
     (cfg["data_dir"] / "bam" / "merge" / "precursor").mkdir(parents=True, exist_ok=True)
+    (cfg["data_dir"] / "bam" / "merge" / "splice").mkdir(parents=True, exist_ok=True)
     for bam_file in os.listdir(cfg["data_dir"] / "bam" / "merge"):
         if not bam_file.endswith(".bam"):
             continue
@@ -225,6 +226,6 @@ def filter_precursor_reads_all(cfg: dict) -> None:
         bam_file = cfg["data_dir"] / "bam" / "merge" / bam_file
 
         for strand in ["f", "r"]:
-            filter_precursor_reads(cfg, bam_file, strand)
+            filter_precursor_bam(cfg, bam_file, strand)
 
-        filter_splice_reads(cfg, bam_file)
+        filter_splice_bam(cfg, bam_file)

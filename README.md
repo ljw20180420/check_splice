@@ -1,3 +1,2 @@
 - use tgv like program to show sam
 - check igv installed and learn igv
-- add splice bam to ucsc

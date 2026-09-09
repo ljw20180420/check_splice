@@ -581,7 +581,7 @@ def draw_links(
 
     (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
 
-    score_to_width = "0.5 + score * 10"
+    score_to_width = "0.5 + score * 10"  # score is RPM
     height = 5
     frame = (
         XAxis(name="hg19")
