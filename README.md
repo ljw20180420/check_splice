@@ -1,0 +1,6 @@
+- splice
+  - unify treat
+  - imporve arc width
+  - use tgv like program to show sam
+  - check igv installed and learn igv
+  - check ucsc can view pairs or bedpe

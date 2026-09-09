@@ -6,7 +6,7 @@ import pandas as pd
 import pypdf
 
 from .draw import around_heatmap
-from .utils import get_treat, write_pair
+from .utils import get_treat
 
 matplotlib.use("agg")
 
@@ -54,16 +54,7 @@ def splice(cfg: dict) -> None:
 
     df = (
         df
-        .assign(
-            treat=lambda df: df["clone"].map(
-                lambda ele: "control" if ele.startswith("WT") else "delta"
-            )
-        )
-        .assign(
-            treat=lambda df: df["treat"].where(
-                (df["exp"] != "clip") | (df["treat"] == "control"), "tag"
-            )
-        )
+        .assign(treat=lambda df: get_treat(df))
         .groupby(["exp", "protein", "treat"])
         .agg(**{
             column: pd.NamedAgg(column=column, aggfunc="sum") for column in columns
@@ -125,14 +116,9 @@ def around(
 ):
     result_file = cfg["data_dir"] / "result" / "reads.feather"
     df = pd.read_feather(result_file).assign(
-        exp_protein_wt=lambda df: (
-            df["exp"]
-            + "_"
-            + df["protein"]
-            + "_"
-            + df["clone"].map(
-                lambda ele: "control" if ele.startswith("WT") else "delta"
-            )
+        treat=lambda df: get_treat(df),
+        exp_protein_treat=lambda df: (
+            df["exp"] + "_" + df["protein"] + "_" + df["treat"]
         ),
     )
 
@@ -141,7 +127,7 @@ def around(
         read_starts = (
             df
             .query(filter)
-            .reset_index(drop=True)[["exp_protein_wt", target]]
+            .reset_index(drop=True)[["exp_protein_treat", target]]
             .value_counts()
             .reset_index()
         )
@@ -183,27 +169,22 @@ def around(
         pd
         .read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
         .assign(
-            exp_protein_wt=lambda df: (
-                df["exp"]
-                + "_"
-                + df["protein"]
-                + "_"
-                + df["clone"].map(
-                    lambda ele: "control" if ele.startswith("WT") else "delta"
-                )
+            treat=lambda df: get_treat(df),
+            exp_protein_treat=lambda df: (
+                df["exp"] + "_" + df["protein"] + "_" + df["treat"]
             ),
         )
-        .groupby("exp_protein_wt")["total_count"]
+        .groupby("exp_protein_treat")["total_count"]
         .sum()
         .reset_index()
     )
 
-    for exp_protein_wt, total_count in zip(
-        df_total["exp_protein_wt"], df_total["total_count"]
+    for exp_protein_treat, total_count in zip(
+        df_total["exp_protein_treat"], df_total["total_count"]
     ):
         df_slice = (
             df_around
-            .query("exp_protein_wt == @exp_protein_wt")
+            .query("exp_protein_treat == @exp_protein_treat")
             .reset_index(drop=True)[[center_axis_name, "relative", "count"]]
             .set_index([center_axis_name, "relative"])
             .reindex(
@@ -219,15 +200,13 @@ def around(
             .reset_index()
         )
 
-        # yield df_slice, exp_protein_wt
-
         df_slice = df_slice.assign(
             count=lambda df, total_count=total_count: (
                 df["count"] / total_count * 1_000_000
             )
         )
 
-        yield df_slice, exp_protein_wt, "RPM"
+        yield df_slice, exp_protein_treat, "RPM"
 
 
 def read_start_around_exon_start(cfg: dict) -> None:
@@ -313,19 +292,6 @@ def inrange_end_around_exon_end(cfg: dict) -> None:
 
 
 def get_pairs(cfg: dict) -> None:
-    result_file = cfg["data_dir"] / "result" / "reads.feather"
-    df = pd.read_feather(result_file).assign(
-        exp_protein_wt=lambda df: (
-            df["exp"]
-            + "_"
-            + df["protein"]
-            + "_"
-            + df["clone"].map(
-                lambda ele: "control" if ele.startswith("WT") else "delta"
-            )
-        ),
-    )
-
     def splice_pair(ele: str) -> list:
         blocks = ele.split(";")
         pairs = []
@@ -334,22 +300,43 @@ def get_pairs(cfg: dict) -> None:
             next_block_chrom, next_block_start, next_block_end, next_block_strand = (
                 blocks[i + 1].split(":")
             )
-            pairs.append(
-                f"{block_chrom}:{int(block_end) + 1}:{block_strand}:{next_block_chrom}:{int(next_block_start) + 1}:{next_block_strand}"
-            )
+            assert block_chrom == next_block_chrom, "inconsistent chrom"
+            chrom1 = block_chrom
+            chrom2 = next_block_chrom
+            if block_start < next_block_start:
+                pos1 = int(block_end) + 1
+                strand1 = block_strand
+                pos2 = int(next_block_start) + 1
+                strand2 = next_block_strand
+            else:
+                pos1 = int(next_block_end) + 1
+                strand1 = next_block_strand
+                pos2 = int(block_start) + 1
+                strand2 = block_strand
+
+            pairs.append(f"{chrom1}:{pos1}:{strand1}:{chrom2}:{pos2}:{strand2}")
+
         return pairs
+
+    result_file = cfg["data_dir"] / "result" / "reads.feather"
+    df = pd.read_feather(result_file).assign(
+        treat=lambda df: get_treat(df),
+        exp_protein_treat=lambda df: (
+            df["exp"] + "_" + df["protein"] + "_" + df["treat"]
+        ),
+    )
 
     df = (
         df
         .query("not is_shadow and blocks.str.contains(';')")
-        .reset_index(drop=True)[["exp_protein_wt", "query_name", "blocks"]]
+        .reset_index(drop=True)[["exp_protein_treat", "query_name", "blocks"]]
         .assign(blocks=lambda df: df["blocks"].map(splice_pair))
         .explode("blocks", ignore_index=True)
     )
 
     df = pd.concat(
         [
-            df[["exp_protein_wt", "query_name"]].rename(
+            df[["exp_protein_treat", "query_name"]].rename(
                 columns={"query_name": "readID"}
             ),
             df["blocks"]
@@ -368,39 +355,124 @@ def get_pairs(cfg: dict) -> None:
         axis=1,
     )
 
-    exp_protein_wts = df["exp_protein_wt"].drop_duplicates().to_list()
     (cfg["data_dir"] / "result" / "hic" / "pairs").mkdir(exist_ok=True, parents=True)
+    for exp_protein_treat in df["exp_protein_treat"].drop_duplicates().to_list():
+        with open(
+            cfg["data_dir"] / "result" / "hic" / "pairs" / f"{exp_protein_treat}.pairs",
+            "w",
+        ) as fd:
+            fd.write("## pairs format v1.0\n")
+            df.query("exp_protein_treat == @exp_protein_treat")[
+                ["readID", "chrom1", "pos1", "chrom2", "pos2", "strand1", "strand2"]
+            ].to_csv(fd, sep="\t", header=False, index=False)
 
-    write_pair(
-        df=df.query("strand1 == '+' and strand2 == '+'").drop(columns="exp_protein_wt"),
-        pair_file=cfg["data_dir"] / "result" / "hic" / "pairs" / "ff.pairs",
+
+def get_interact(cfg: dict) -> None:
+    def splice_interact(ele: str) -> list:
+        blocks = ele.split(";")
+        interact = []
+        for i in range(len(blocks) - 1):
+            block_chrom, block_start, block_end, block_strand = blocks[i].split(":")
+            next_block_chrom, next_block_start, next_block_end, next_block_strand = (
+                blocks[i + 1].split(":")
+            )
+            assert block_chrom == next_block_chrom, "chrom is not consistent"
+
+            chrom = block_chrom
+            chromStart = min(block_start, next_block_start)
+            chromEnd = max(block_end, next_block_end)
+            sourceChrom = block_chrom
+            sourceStart = block_start
+            sourceEnd = block_end
+            sourceStrand = block_strand
+            targetChrom = next_block_chrom
+            targetStart = next_block_start
+            targetEnd = next_block_end
+            targetStrand = next_block_strand
+
+            interact.append(
+                f"{chrom}:{chromStart}:{chromEnd}:{sourceChrom}:{sourceStart}:{sourceEnd}:{sourceStrand}:{targetChrom}:{targetStart}:{targetEnd}:{targetStrand}"
+            )
+
+        return interact
+
+    result_file = cfg["data_dir"] / "result" / "reads.feather"
+    df = pd.read_feather(result_file).assign(
+        treat=lambda df: get_treat(df),
+        exp_protein_treat=lambda df: (
+            df["exp"] + "_" + df["protein"] + "_" + df["treat"]
+        ),
     )
 
-    for exp_protein_wt in exp_protein_wts:
-        write_pair(
-            df=df.query(
-                "exp_protein_wt == @exp_protein_wt and strand1 == '+' and strand2 == '+'"
-            ).drop(columns="exp_protein_wt"),
-            pair_file=cfg["data_dir"]
-            / "result"
-            / "hic"
-            / "pairs"
-            / f"{exp_protein_wt}_ff.pairs",
+    df = (
+        df
+        .query("not is_shadow and blocks.str.contains(';')")
+        .reset_index(drop=True)[["exp_protein_treat", "query_name", "blocks"]]
+        .assign(blocks=lambda df: df["blocks"].map(splice_interact))
+        .explode("blocks", ignore_index=True)
+    )
+
+    df = (
+        pd
+        .concat(
+            [
+                df[["exp_protein_treat", "query_name"]].rename(
+                    columns={"exp_protein_treat": "exp", "query_name": "name"}
+                ),
+                df["blocks"]
+                .str.split(":", expand=True)
+                .rename(
+                    columns={
+                        0: "chrom",
+                        1: "chromStart",
+                        2: "chromEnd",
+                        3: "sourceChrom",
+                        4: "sourceStart",
+                        5: "sourceEnd",
+                        6: "sourceStrand",
+                        7: "targetChrom",
+                        8: "targetStart",
+                        9: "targetEnd",
+                        10: "targetStrand",
+                    }
+                ),
+            ],
+            axis=1,
         )
-
-    write_pair(
-        df=df.query("strand1 == '-' and strand2 == '-'").drop(columns="exp_protein_wt"),
-        pair_file=cfg["data_dir"] / "result" / "hic" / "pairs" / "rr.pairs",
+        .assign(score=0, color=0, value=1.0, sourceName=".", targetName=".")[
+            [
+                "chrom",
+                "chromStart",
+                "chromEnd",
+                "name",
+                "score",
+                "value",
+                "exp",
+                "color",
+                "sourceChrom",
+                "sourceStart",
+                "sourceEnd",
+                "sourceName",
+                "sourceStrand",
+                "targetChrom",
+                "targetStart",
+                "targetEnd",
+                "targetName",
+                "targetStrand",
+            ]
+        ]
+        .sort_values(by=["chrom", "chromStart"])
     )
 
-    for exp_protein_wt in exp_protein_wts:
-        write_pair(
-            df=df.query(
-                "exp_protein_wt == @exp_protein_wt and strand1 == '-' and strand2 == '-'"
-            ).drop(columns="exp_protein_wt"),
-            pair_file=cfg["data_dir"]
+    (cfg["data_dir"] / "result" / "hic" / "interact").mkdir(exist_ok=True, parents=True)
+    for exp_protein_treat in df["exp"].drop_duplicates().to_list():
+        df.query("exp == @exp_protein_treat").to_csv(
+            cfg["data_dir"]
             / "result"
             / "hic"
-            / "pairs"
-            / f"{exp_protein_wt}_rr.pairs",
+            / "interact"
+            / f"{exp_protein_treat}.bed",
+            sep="\t",
+            header=False,
+            index=False,
         )

@@ -3,6 +3,7 @@ from pathlib import Path
 
 def pcdh():
     return {
+        "size_before_first": 3000,
         "color": {
             "WT": "#000000",
             "NP220": "#FF1493",

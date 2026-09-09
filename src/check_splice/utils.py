@@ -1,10 +1,12 @@
 import os
+import pathlib
 import shutil
 import subprocess
 
-import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyBigWig
+import pysam
 import sh
 from pyarrow import ipc
 
@@ -23,25 +25,6 @@ def jsonl2feather(jsonl_file: os.PathLike, feather_file: os.PathLike):
 
     df = pd.read_feather(feather_file)
     df.to_feather(feather_file)
-
-
-def write_pair(
-    df: pd.DataFrame,
-    pair_file: os.PathLike,
-) -> None:
-    with open(pair_file, "w") as fd:
-        fd.write("## pairs format v1.0\n")
-        df.rename(
-            columns={
-                "pos1": "pos1_old",
-                "pos2": "pos2_old",
-            }
-        ).assign(
-            pos1=lambda df: np.minimum(df["pos1_old"], df["pos2_old"]),
-            pos2=lambda df: np.maximum(df["pos1_old"], df["pos2_old"]),
-        )[["readID", "chrom1", "pos1", "chrom2", "pos2", "strand1", "strand2"]].to_csv(
-            fd, sep="\t", header=False, index=False
-        )
 
 
 def pair_to_hic(
@@ -153,3 +136,69 @@ def get_treat(df: pd.DataFrame) -> pd.Series:
     treat = treat.where((df["exp"] != "clip") | (treat == "control"), "tag")
 
     return treat
+
+
+def get_bw(
+    bamfile: os.PathLike,
+    total_count: int,
+    bin_size: int,
+    chrom: str,
+    start: int,
+    end: int,
+    chrom_size,
+) -> None:
+    bamfile = pathlib.Path(bamfile)
+    bamCoverage = sh.Command("bamCoverage")
+    with pysam.AlignmentFile(bamfile, "rb") as bam:
+        mapped_count = bam.mapped
+    if mapped_count > 0:
+        bamCoverage(
+            "--bam",
+            os.fspath(bamfile),
+            "-o",
+            os.fspath(bamfile.with_suffix(".bw")),
+            "-r",
+            f"{chrom}:{start}:{end}",
+            "--binSize",
+            bin_size,
+            "--scaleFactor",
+            1_000_000 / total_count,
+        )
+    else:
+        mid = (start + end) // 2
+        with pyBigWig.open(os.fspath(bamfile.with_suffix(".bw")), "w") as bw:
+            bw.addHeader([(chrom, chrom_size)])
+            bw.addEntries(chrom, [mid], values=[0.0], span=1)
+
+
+def get_precursor_pos(cfg: dict) -> pd.DataFrame:
+    df_se = (
+        pd
+        .read_csv(cfg["data_dir"] / "result" / "cpcdh.csv")
+        .query("type == 'exon'")
+        .melt(
+            id_vars=["chrom", "name"],
+            value_vars=["start", "end"],
+            var_name="se",
+            value_name="pos",
+        )
+    )
+
+    return df_se
+
+
+def get_total_count(cfg: dict, exp: str, protein: str, treat: str) -> int:
+    df_total = pd.read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
+    df_total = (
+        df_total
+        .assign(treat=lambda df: get_treat(df))
+        .groupby(["exp", "protein", "treat"])["total_count"]
+        .sum()
+        .reset_index()
+    )
+
+    total_count = df_total.query(
+        "exp == @exp and protein == @protein and treat == @treat"
+    )["total_count"].item()
+
+    return total_count

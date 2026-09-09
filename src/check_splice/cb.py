@@ -5,63 +5,25 @@ import matplotlib.pyplot as plt
 import numpy as np
 import oxbow as ox
 import pandas as pd
+import py2bit
 import pyBigWig
 import pypdf
+import pysam
 from coolbox.api import *
 from dna_features_viewer import GraphicFeature, GraphicRecord
 from dna_features_viewer.compute_features_levels import compute_features_levels
 
-from .sam import get_precursor_pos
-
-
-def get_total_count(cfg: dict, exp_protein_wt: str) -> int:
-    df_total = pd.read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
-    df_total = (
-        df_total
-        .assign(
-            exp_protein_wt=lambda df: (
-                df["exp"]
-                + "_"
-                + df["protein"]
-                + "_"
-                + df["clone"].map(
-                    lambda ele: "control" if ele.startswith("WT") else "delta"
-                )
-            )
-        )
-        .groupby("exp_protein_wt")["total_count"]
-        .sum()
-        .reset_index()
-    )
-
-    if exp_protein_wt:
-        total_count = df_total.loc[
-            df_total["exp_protein_wt"] == exp_protein_wt, "total_count"
-        ].item()
-    else:
-        total_count = df_total["total_count"].sum()
-
-    return total_count
+from .utils import get_precursor_pos, get_total_count
 
 
 def pairs_to_bedpe(cfg: dict) -> None:
     shutil.rmtree(cfg["data_dir"] / "result" / "hic" / "bedpe", ignore_errors=True)
     (cfg["data_dir"] / "result" / "hic" / "bedpe").mkdir(parents=True, exist_ok=True)
     for pairs_file in os.listdir(cfg["data_dir"] / "result" / "hic" / "pairs"):
-        if pairs_file == "ff.pairs" or pairs_file == "rr.pairs":
-            exp_protein_wt = ""
-        else:
-            exp_protein_wt = pairs_file.rsplit("_", 1)[0]
-        total_count = get_total_count(cfg, exp_protein_wt)
+        exp, protein, treat = pairs_file.split(".")[0].split("_", 3)
+        total_count = get_total_count(cfg, exp, protein, treat)
 
         pairs_file = cfg["data_dir"] / "result" / "hic" / "pairs" / pairs_file
-        bedpe_file = (
-            cfg["data_dir"]
-            / "result"
-            / "hic"
-            / "bedpe"
-            / pairs_file.with_suffix(".bedpe").name
-        )
 
         df = pd.read_csv(
             pairs_file,
@@ -125,16 +87,56 @@ def pairs_to_bedpe(cfg: dict) -> None:
             ]
         )
 
-        df.to_csv(bedpe_file, sep="\t", header=False, index=False)
+        with py2bit.open("/home/ljw/sdb1/ucsc/hubs/myHub/lhg19/lhg19.2bit") as tb:
+            donors = []
+            acceptors = []
+            for chrom1, start1, chrom2, start2 in zip(
+                df["chrom1"], df["start1"], df["chrom2"], df["start2"]
+            ):
+                assert chrom1 == chrom2 and start1 < start2, "illegal order"
+                donors.append(tb.sequence(chrom1, start1, start1 + 2))
+                acceptors.append(tb.sequence(chrom2, start2 - 2, start2))
+
+        df = df.assign(
+            donor=donors,
+            acceptor=acceptors,
+        )
+
+        bedpe_file = (
+            cfg["data_dir"]
+            / "result"
+            / "hic"
+            / "bedpe"
+            / pairs_file.with_suffix(".bedpe").name
+        )
+
+        df.query("donor == 'GT' and acceptor == 'AG'").drop(
+            columns=["donor", "acceptor"]
+        ).to_csv(
+            bedpe_file.with_suffix(".f.bedpe"), sep="\t", header=False, index=False
+        )
+
+        df.query("donor == 'CT' and acceptor == 'AC'").drop(
+            columns=["donor", "acceptor"]
+        ).to_csv(
+            bedpe_file.with_suffix(".r.bedpe"), sep="\t", header=False, index=False
+        )
+
+        df.query(
+            "(donor != 'GT' or acceptor != 'AG') and (donor != 'CT' or acceptor != 'AC')"
+        ).drop(columns=["donor", "acceptor"]).to_csv(
+            bedpe_file.with_suffix(".o.bedpe"), sep="\t", header=False, index=False
+        )
 
 
 def diff_bedpe(cfg: dict, exp: str, protein: str, orientation: str) -> None:
+    treat = "delta" if exp != "clip" else "tag"
     treat_file = (
         cfg["data_dir"]
         / "result"
         / "hic"
         / "bedpe"
-        / f"{exp}_{protein}_delta_{orientation}.bedpe"
+        / f"{exp}_{protein}_{treat}.{orientation}.bedpe"
     )
     if exp != "clip":
         control_file = (
@@ -142,7 +144,7 @@ def diff_bedpe(cfg: dict, exp: str, protein: str, orientation: str) -> None:
             / "result"
             / "hic"
             / "bedpe"
-            / f"{exp}_{protein}_control_{orientation}.bedpe"
+            / f"{exp}_{protein}_control.{orientation}.bedpe"
         )
     else:
         control_file = (
@@ -150,7 +152,7 @@ def diff_bedpe(cfg: dict, exp: str, protein: str, orientation: str) -> None:
             / "result"
             / "hic"
             / "bedpe"
-            / f"{exp}_WT_control_{orientation}.bedpe"
+            / f"{exp}_WT_control.{orientation}.bedpe"
         )
 
     df_treat = pd.read_csv(
@@ -167,6 +169,8 @@ def diff_bedpe(cfg: dict, exp: str, protein: str, orientation: str) -> None:
             "score",
             "strand1",
             "strand2",
+            "donor",
+            "acceptor",
         ],
     )
     df_control = pd.read_csv(
@@ -183,17 +187,26 @@ def diff_bedpe(cfg: dict, exp: str, protein: str, orientation: str) -> None:
             "score",
             "strand1",
             "strand2",
+            "donor",
+            "acceptor",
         ],
     )
     df = df_treat.merge(
         df_control,
-        on=["chrom1", "start1", "end1", "chrom2", "start2", "end2"],
+        on=[
+            "chrom1",
+            "start1",
+            "end1",
+            "chrom2",
+            "start2",
+            "end2",
+            "strand1",
+            "strand2",
+        ],
         how="outer",
     ).assign(
         name=lambda df: df["name_x"].combine_first(df["name_y"]),
         score=lambda df: df["score_x"].fillna(0) - df["score_y"].fillna(0),
-        strand1=lambda df: df["strand1_x"].combine_first(df["strand1_y"]),
-        strand2=lambda df: df["strand2_x"].combine_first(df["strand2_y"]),
     )[
         [
             "chrom1",
@@ -215,7 +228,7 @@ def diff_bedpe(cfg: dict, exp: str, protein: str, orientation: str) -> None:
             / "result"
             / "hic"
             / "bedpe"
-            / f"{exp}_{protein}_diff_{orientation}_increase.bedpe"
+            / f"{exp}_{protein}_diff.up.{orientation}.bedpe"
         ),
         sep="\t",
         index=False,
@@ -227,7 +240,7 @@ def diff_bedpe(cfg: dict, exp: str, protein: str, orientation: str) -> None:
             / "result"
             / "hic"
             / "bedpe"
-            / f"{exp}_{protein}_diff_{orientation}_decrease.bedpe"
+            / f"{exp}_{protein}_diff.down.{orientation}.bedpe"
         ),
         sep="\t",
         index=False,
@@ -236,10 +249,9 @@ def diff_bedpe(cfg: dict, exp: str, protein: str, orientation: str) -> None:
 
 
 def diff_bedpe_all(cfg: dict) -> None:
-    pairs_to_bedpe(cfg)
     for exp in ["total", "rna", "pro", "clip"]:
         for protein in ["NP220", "MPP8", "PPHLN1", "TASOR"]:
-            for orientation in ["ff", "rr"]:
+            for orientation in ["f", "r"]:
                 diff_bedpe(cfg, exp, protein, orientation)
 
 
@@ -255,28 +267,37 @@ def draw_links(
             / "result"
             / "hic"
             / "bedpe"
-            / f"{exp}_{protein}_control_ff.bedpe"
+            / f"{exp}_{protein}_control.f.bedpe"
         )
         control_r = (
             cfg["data_dir"]
             / "result"
             / "hic"
             / "bedpe"
-            / f"{exp}_{protein}_control_rr.bedpe"
+            / f"{exp}_{protein}_control.r.bedpe"
         )
     else:
         control_f = (
-            cfg["data_dir"] / "result" / "hic" / "bedpe" / f"{exp}_WT_control_ff.bedpe"
+            cfg["data_dir"] / "result" / "hic" / "bedpe" / f"{exp}_WT_control.f.bedpe"
         )
         control_r = (
-            cfg["data_dir"] / "result" / "hic" / "bedpe" / f"{exp}_WT_control_rr.bedpe"
+            cfg["data_dir"] / "result" / "hic" / "bedpe" / f"{exp}_WT_control.r.bedpe"
         )
 
+    treat = "delta" if exp != "clip" else "tag"
     treat_f = (
-        cfg["data_dir"] / "result" / "hic" / "bedpe" / f"{exp}_{protein}_delta_ff.bedpe"
+        cfg["data_dir"]
+        / "result"
+        / "hic"
+        / "bedpe"
+        / f"{exp}_{protein}_{treat}.f.bedpe"
     )
     treat_r = (
-        cfg["data_dir"] / "result" / "hic" / "bedpe" / f"{exp}_{protein}_delta_rr.bedpe"
+        cfg["data_dir"]
+        / "result"
+        / "hic"
+        / "bedpe"
+        / f"{exp}_{protein}_{treat}.r.bedpe"
     )
 
     diff_f_increase = (
@@ -284,39 +305,41 @@ def draw_links(
         / "result"
         / "hic"
         / "bedpe"
-        / f"{exp}_{protein}_diff_ff_increase.bedpe"
+        / f"{exp}_{protein}_diff.up.f.bedpe"
     )
     diff_r_increase = (
         cfg["data_dir"]
         / "result"
         / "hic"
         / "bedpe"
-        / f"{exp}_{protein}_diff_rr_increase.bedpe"
+        / f"{exp}_{protein}_diff.up.r.bedpe"
     )
     diff_f_decrease = (
         cfg["data_dir"]
         / "result"
         / "hic"
         / "bedpe"
-        / f"{exp}_{protein}_diff_ff_decrease.bedpe"
+        / f"{exp}_{protein}_diff.down.f.bedpe"
     )
     diff_r_decrease = (
         cfg["data_dir"]
         / "result"
         / "hic"
         / "bedpe"
-        / f"{exp}_{protein}_diff_rr_decrease.bedpe"
+        / f"{exp}_{protein}_diff.down.r.bedpe"
     )
 
     (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
-    treat = "delta" if exp != "clip" else "tag"
 
+    score_to_width = "0.5 + score * 10"
+    height = 5
     frame = (
         XAxis(name="hg19")
         + BEDPE(
             os.fspath(control_f),
+            score_to_width=score_to_width,
             color=cfg["color"]["WT"],
-            height=5,
+            height=height,
             title="control",
         )
         + BED(
@@ -327,15 +350,17 @@ def draw_links(
         )
         + BEDPE(
             os.fspath(control_r),
+            score_to_width=score_to_width,
             color=cfg["color"]["WT"],
-            height=5,
+            height=height,
             title="control",
             orientation="inverted",
         )
         + BEDPE(
             os.fspath(treat_f),
+            score_to_width=score_to_width,
             color=cfg["color"][protein],
-            height=5,
+            height=height,
             title=treat,
         )
         + BED(
@@ -346,18 +371,24 @@ def draw_links(
         )
         + BEDPE(
             os.fspath(treat_r),
+            score_to_width=score_to_width,
             color=cfg["color"][protein],
-            height=5,
+            height=height,
             title=treat,
             orientation="inverted",
         )
         + BEDPE(
             os.fspath(diff_f_increase),
+            score_to_width=score_to_width,
             color=cfg["color"]["INCREASE"],
-            height=5,
+            height=height,
             title="diff",
         )
-        + BEDPECoverage(os.fspath(diff_f_decrease), color=cfg["color"]["DECREASE"])
+        + BEDPECoverage(
+            os.fspath(diff_f_decrease),
+            score_to_width=score_to_width,
+            color=cfg["color"]["DECREASE"],
+        )
         + BED(
             os.fspath(cfg["data_dir"] / "result" / "hg19.12.bed"),
             display="collapsed",
@@ -366,12 +397,14 @@ def draw_links(
         )
         + BEDPE(
             os.fspath(diff_r_increase),
+            score_to_width=score_to_width,
             color=cfg["color"]["INCREASE"],
-            height=5,
+            height=height,
             title="diff",
         )
         + BEDPECoverage(
             os.fspath(diff_r_decrease),
+            score_to_width=score_to_width,
             color=cfg["color"]["DECREASE"],
             orientation="inverted",
         )
@@ -392,6 +425,121 @@ def draw_links(
     plt.close(fig)
 
     return link_file
+
+
+def get_exon_pre(cfg: dict):
+    df_cpcdh = (
+        pd
+        .read_csv(cfg["data_dir"] / "result" / "cpcdh.csv", header=0)
+        .query("type=='exon' and name.str.startswith('PCDHA')")
+        .reset_index(drop=True)
+    )
+    df_cpcdh = df_cpcdh.assign(
+        pre_start=lambda df: (
+            [df.loc[0, "start"].item() - cfg["size_before_first"]]
+            + df["end"].to_list()[:-1]
+        ),
+        pre_end=lambda df: df["start"],
+    )
+
+    dfs = []
+    for exp in ["total", "rna", "pro", "clip"]:
+        for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
+            for wt in [True, False]:
+                if wt:
+                    treat = "control"
+                else:
+                    if exp != "clip":
+                        treat = "delta"
+                    else:
+                        treat = "tag"
+
+                bam_file = (
+                    cfg["data_dir"] / "bam" / "merge" / f"{exp}_{protein}_{treat}.bam"
+                )
+
+                if not bam_file.exists():
+                    continue
+
+                with pysam.AlignmentFile(os.fspath(bam_file)) as sam:
+                    exon_counts = []
+                    pre_counts = []
+                    for chrom, start, end, pre_start, pre_end in zip(
+                        df_cpcdh["chrom"],
+                        df_cpcdh["start"],
+                        df_cpcdh["end"],
+                        df_cpcdh["pre_start"],
+                        df_cpcdh["pre_end"],
+                    ):
+                        exon_count = 0
+                        for read in sam.fetch(chrom, start, end):
+                            if read.is_secondary:
+                                continue
+                            if not read.is_mapped:
+                                continue
+                            if read.is_supplementary:
+                                continue
+
+                            exon_count += 1
+
+                        exon_counts.append(exon_count)
+
+                        pre_count = 0
+                        for read in sam.fetch(chrom, pre_start, pre_end):
+                            if read.is_secondary:
+                                continue
+                            if not read.is_mapped:
+                                continue
+                            if read.is_supplementary:
+                                continue
+
+                            pre_count += 1
+
+                        pre_counts.append(pre_count)
+
+                dfs.append(
+                    df_cpcdh.copy()[
+                        ["chrom", "start", "end", "name", "pre_start", "pre_end"]
+                    ].assign(
+                        exon_count=exon_counts,
+                        pre_count=pre_counts,
+                        exp=exp,
+                        protein=protein,
+                        treat=treat,
+                    )
+                )
+
+    pd.concat(dfs, ignore_index=True).to_csv(
+        cfg["data_dir"] / "result" / "exon_pre.csv", index=False
+    )
+
+
+def construct_artifact_bw(cfg: dict) -> None:
+    df_exon_pre = pd.read_csv(cfg["data_dir"] / "result" / "exon_pre.csv", header=0)
+    df_splice = (
+        pd
+        .read_csv(cfg["data_dir"] / "result" / "splice.csv", header=0)
+        .query("name.str.startswith('PCDHA')")
+        .reset_index(drop=True)
+    )
+    for exp in ["total", "rna", "pro", "clip"]:
+        for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
+            for wt in [True, False]:
+                if wt:
+                    treat = "control"
+                else:
+                    if exp != "clip":
+                        treat = "delta"
+                    else:
+                        treat = "tag"
+
+                df_exon_pre_slice = df_exon_pre.query(
+                    "exp == @exp and protein == @protein and treat == @treat"
+                ).assign(**{
+                    "exon %": lambda df: (
+                        df["exon_count"] / (df["exon_count"] + df["pre_count"])
+                    )
+                })
 
 
 def draw_covers(
@@ -523,21 +671,12 @@ def draw_covers(
 
 
 def draw_all(cfg: dict):
-    for exp in ["total", "rna", "pro", "clip"]:
+    for exp in ["total", "rna"]:
         pdf_files = []
         with pypdf.PdfWriter() as pdf_writer:
             for protein in ["NP220", "MPP8", "PPHLN1", "TASOR"]:
-                for cluster in ["alpha", "beta", "gamma"]:
+                for cluster in ["alpha"]:
                     pdf_file = draw_links(
-                        cfg,
-                        exp=exp,
-                        protein=protein,
-                        cluster=cluster,
-                    )
-                    pdf_writer.append(pdf_file)
-                    pdf_files.append(pdf_file)
-
-                    pdf_file = draw_covers(
                         cfg,
                         exp=exp,
                         protein=protein,

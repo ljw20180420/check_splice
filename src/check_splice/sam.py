@@ -6,6 +6,8 @@ import pyBigWig
 import pysam
 import sh
 
+from .utils import get_precursor_pos
+
 
 def parse_cigar(start: int, cigarstring: str):
     blocks = []
@@ -103,32 +105,57 @@ def filter_reads(samfile: os.PathLike, chrom: str, start: int, end: int):
             yield read
 
 
-def get_precursor_pos(cfg: dict) -> pd.DataFrame:
-    df_se = (
-        pd
-        .read_csv(cfg["data_dir"] / "result" / "cpcdh.csv")
-        .query("type == 'exon'")
-        .melt(
-            id_vars=["chrom", "name"],
-            value_vars=["start", "end"],
-            var_name="se",
-            value_name="pos",
-        )
-    )
+def merge_bam(cfg: dict) -> None:
+    (cfg["data_dir"] / "bam" / "merge").mkdir(exist_ok=True, parents=True)
+    samtools = sh.Command("samtools")
+    for exp in ["total", "rna", "pro", "clip"]:
+        for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
+            for wt in [True, False]:
+                if wt:
+                    treat = "control"
+                else:
+                    if exp != "clip":
+                        treat = "delta"
+                    else:
+                        treat = "tag"
 
-    return df_se
+                bam_files = []
+                for bam_file in os.listdir(cfg["data_dir"] / "bam"):
+                    if not bam_file.endswith(".bam"):
+                        continue
+                    exp_, protein_, clone_, _ = bam_file.split("_", 3)
+                    if exp_ != exp or protein_ != protein:
+                        continue
+                    if wt != clone_.startswith("WT"):
+                        continue
+
+                    bam_file = cfg["data_dir"] / "bam" / bam_file
+                    bam_files.append(os.fspath(bam_file))
+
+                if not bam_files:
+                    continue
+
+                merge_bam = (
+                    cfg["data_dir"] / "bam" / "merge" / f"{exp}_{protein}_{treat}.bam"
+                )
+                samtools(
+                    "merge",
+                    "-f",
+                    "-o",
+                    os.fspath(merge_bam),
+                    *bam_files,
+                )
+                samtools("index", os.fspath(merge_bam))
 
 
-def modify_path(bam_file: os.PathLike, RS: str) -> os.PathLike:
-    return bam_file.with_name("precursor") / bam_file.with_suffix(f".{RS}.bam").name
-
-
-def filter_precursor_reads(cfg: dict, bam_file: os.PathLike, RS: str) -> None:
+def filter_precursor_reads(cfg: dict, bam_file: os.PathLike, strand: str) -> None:
     df_se = get_precursor_pos(cfg)
     with pysam.AlignmentFile(bam_file, "rb") as infile:
-        with pysam.AlignmentFile(
-            modify_path(bam_file, RS), "wb", template=infile
-        ) as outfile:
+        filtered_bam_file = (
+            bam_file.with_name("precursor")
+            / bam_file.with_suffix(f".{strand}.bam").name
+        )
+        with pysam.AlignmentFile(filtered_bam_file, "wb", template=infile) as outfile:
             for read in infile.fetch(cfg["chrom"], cfg["start"], cfg["end"]):
                 if read.is_secondary:
                     continue
@@ -136,9 +163,16 @@ def filter_precursor_reads(cfg: dict, bam_file: os.PathLike, RS: str) -> None:
                     continue
                 if read.is_supplementary:
                     continue
-                if ("1" in RS) != read.is_read1:
-                    continue
-                if ("f" in RS) != read.is_forward:
+
+                read_strand = (
+                    "f"
+                    if read.is_read1
+                    and read.is_reverse
+                    or read.is_read2
+                    and read.is_forward
+                    else "r"
+                )
+                if read_strand != strand:
                     continue
 
                 for (
@@ -159,124 +193,38 @@ def filter_precursor_reads(cfg: dict, bam_file: os.PathLike, RS: str) -> None:
                         break
 
 
+def filter_splice_reads(cfg: dict, bam_file: os.PathLike) -> None:
+    with pysam.AlignmentFile(bam_file, "rb") as infile:
+        filtered_bam_file = bam_file.with_name("splice") / bam_file.name
+        with pysam.AlignmentFile(filtered_bam_file, "wb", template=infile) as outfile:
+            for read in infile.fetch(cfg["chrom"], cfg["start"], cfg["end"]):
+                if read.is_secondary:
+                    continue
+                if not read.is_mapped:
+                    continue
+                if read.is_supplementary:
+                    continue
+
+                for i, (
+                    block_chrom,
+                    block_start,
+                    block_end,
+                    block_strand,
+                ) in enumerate(parse_block_without_flip(read)):
+                    if i > 0:
+                        outfile.write(read)
+                        break
+
+
 def filter_precursor_reads_all(cfg: dict) -> None:
-    (cfg["data_dir"] / "bam" / "precursor").mkdir(parents=True, exist_ok=True)
-    samtools = sh.Command("samtools")
-    for bam_file in os.listdir(cfg["data_dir"] / "bam"):
+    (cfg["data_dir"] / "bam" / "merge" / "precursor").mkdir(parents=True, exist_ok=True)
+    for bam_file in os.listdir(cfg["data_dir"] / "bam" / "merge"):
         if not bam_file.endswith(".bam"):
             continue
 
-        bam_file = cfg["data_dir"] / "bam" / bam_file
-        for RS in ["1r", "2f", "1f", "2r"]:
-            filter_precursor_reads(cfg, bam_file, RS)
+        bam_file = cfg["data_dir"] / "bam" / "merge" / bam_file
 
-        for S, RS1, RS2 in zip(["f", "r"], ["1r", "1f"], ["2f", "2r"]):
-            samtools(
-                "merge",
-                "-f",
-                "-o",
-                os.fspath(modify_path(bam_file, S)),
-                os.fspath(modify_path(bam_file, RS1)),
-                os.fspath(modify_path(bam_file, RS2)),
-            )
+        for strand in ["f", "r"]:
+            filter_precursor_reads(cfg, bam_file, strand)
 
-
-def merge_bam_by_exp_protein_treat(cfg: dict) -> None:
-    df_total_count = (
-        pd
-        .read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
-        .assign(
-            wt=lambda df: df["clone"].map(
-                lambda ele: "control" if ele.startswith("WT") else "treat"
-            )
-        )
-        .groupby(["exp", "protein", "wt"])
-        .agg(total_count=pd.NamedAgg("total_count", "sum"))
-    ).reset_index()
-    (cfg["data_dir"] / "bam" / "precursor" / "merge").mkdir(exist_ok=True, parents=True)
-    samtools = sh.Command("samtools")
-    bamCoverage = sh.Command("bamCoverage")
-    for exp in ["total", "rna", "pro", "clip"]:
-        for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
-            for wt in [True, False]:
-                if wt:
-                    treat = "control"
-                    total_counts = df_total_count.query(
-                        "exp == @exp and protein == @protein and wt == 'control'"
-                    )["total_count"]
-                else:
-                    if exp != "clip":
-                        treat = "delta"
-                    else:
-                        treat = "tag"
-                    total_counts = df_total_count.query(
-                        "exp == @exp and protein == @protein and wt == 'treat'"
-                    )["total_count"]
-                assert len(total_counts) < 2, "more than one total count found"
-                total_count = total_counts.sum().item()
-
-                for strand in ["f", "r"]:
-                    bam_files = []
-                    for bam_file in os.listdir(cfg["data_dir"] / "bam" / "precursor"):
-                        if not bam_file.endswith(f".{strand}.bam"):
-                            continue
-                        exp_, protein_, clone_, _ = bam_file.split("_", 3)
-                        if exp_ != exp or protein_ != protein:
-                            continue
-                        if wt != clone_.startswith("WT"):
-                            continue
-
-                        bam_file = cfg["data_dir"] / "bam" / "precursor" / bam_file
-                        bam_files.append(os.fspath(bam_file))
-
-                    if not bam_files:
-                        continue
-
-                    merge_bam = (
-                        cfg["data_dir"]
-                        / "bam"
-                        / "precursor"
-                        / "merge"
-                        / f"{exp}_{protein}_{treat}.{strand}.bam"
-                    )
-                    samtools(
-                        "merge",
-                        "-f",
-                        "-o",
-                        os.fspath(merge_bam),
-                        *bam_files,
-                    )
-                    samtools("index", os.fspath(merge_bam))
-
-                    with pysam.AlignmentFile(merge_bam, "rb") as bam:
-                        mapped_count = bam.mapped
-                    if mapped_count > 0:
-                        bamCoverage(
-                            "--bam",
-                            os.fspath(merge_bam),
-                            "-o",
-                            os.fspath(merge_bam.with_suffix(".bw")),
-                            "-r",
-                            f"{cfg['chrom']}:{cfg['start']}:{cfg['end']}",
-                            "--binSize",
-                            10,
-                            "--scaleFactor",
-                            f"{1_000_000 / total_count}",
-                        )
-                    else:
-                        mid = (cfg["start"] + cfg["end"]) // 2
-                        with pyBigWig.open(
-                            os.fspath(merge_bam.with_suffix(".bw")), "w"
-                        ) as bw:
-                            bw.addHeader([("chr5", 180915260)])
-                            bw.addEntries("chr5", [mid], values=[0.0], span=1)
-
-                    with pysam.AlignmentFile(merge_bam, "rb") as ib:
-                        with pysam.AlignmentFile(
-                            merge_bam.with_suffix(".unify.bam"), "wb", template=ib
-                        ) as ob:
-                            for read in ib.fetch():
-                                read.is_forward = strand == "f"
-                                ob.write(read)
-
-                    samtools("index", os.fspath(merge_bam.with_suffix(".unify.bam")))
+        filter_splice_reads(cfg, bam_file)
