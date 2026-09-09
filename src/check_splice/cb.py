@@ -400,7 +400,7 @@ def construct_artifact_bw(cfg: dict) -> None:
                     .assign(
                         end=lambda df: df["start"] + 1,
                     )[["start", "end", "value"]]
-                    .sort_values(by=["start"])
+                    .sort_values(by=["start"], ignore_index=True)
                 )
 
                 df_pv = (
@@ -428,7 +428,7 @@ def construct_artifact_bw(cfg: dict) -> None:
                         axis=0,
                     )
                     .assign(chrom="chr5")
-                    .sort_values(by=["chrom", "start"])
+                    .sort_values(by=["chrom", "start"], ignore_index=True)
                 )
 
                 with pyBigWig.open(os.fspath(bw_file), "w") as bw:
@@ -839,31 +839,23 @@ def draw_reads(
         control_f = (
             cfg["data_dir"]
             / "bam"
-            / "precursor"
             / "merge"
-            / f"{exp}_{protein}_control.f.unify.bam"
+            / "precursor"
+            / f"{exp}_{protein}_control.f.bam"
         )
         control_r = (
             cfg["data_dir"]
             / "bam"
-            / "precursor"
             / "merge"
-            / f"{exp}_{protein}_control.r.unify.bam"
+            / "precursor"
+            / f"{exp}_{protein}_control.r.bam"
         )
     else:
         control_f = (
-            cfg["data_dir"]
-            / "bam"
-            / "precursor"
-            / "merge"
-            / f"{exp}_WT_control.f.unify.bam"
+            cfg["data_dir"] / "bam" / "merge" / "precursor" / f"{exp}_WT_control.f.bam"
         )
         control_r = (
-            cfg["data_dir"]
-            / "bam"
-            / "precursor"
-            / "merge"
-            / f"{exp}_WT_control.r.unify.bam"
+            cfg["data_dir"] / "bam" / "merge" / "precursor" / f"{exp}_WT_control.r.bam"
         )
 
     treat = "delta" if exp != "clip" else "tag"
@@ -871,20 +863,26 @@ def draw_reads(
     treat_f = (
         cfg["data_dir"]
         / "bam"
-        / "precursor"
         / "merge"
-        / f"{exp}_{protein}_{treat}.f.unify.bam"
+        / "precursor"
+        / f"{exp}_{protein}_{treat}.f.bam"
     )
     treat_r = (
         cfg["data_dir"]
         / "bam"
-        / "precursor"
         / "merge"
-        / f"{exp}_{protein}_{treat}.r.unify.bam"
+        / "precursor"
+        / f"{exp}_{protein}_{treat}.r.bam"
     )
 
     (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
-    df_se = get_precursor_pos(cfg)
+    df_se = (
+        get_precursor_pos(cfg)
+        .query("name.str.startswith('PCDHA')")
+        .reset_index(drop=True)
+        .sort_values(by="pos", ignore_index=True)
+    )
+
     for name, se, pos in zip(df_se["name"], df_se["se"], df_se["pos"]):
         chrom = cfg["chrom"]
         start = pos - 150
@@ -950,7 +948,7 @@ def draw_reads(
 
 
 def draw_reads_all(cfg: dict):
-    for exp in ["total", "rna", "pro", "clip"]:
+    for exp in ["total", "rna"]:
         pdf_files = []
         with pypdf.PdfWriter() as pdf_writer:
             for protein in ["NP220", "MPP8", "PPHLN1", "TASOR"]:

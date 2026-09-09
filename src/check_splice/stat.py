@@ -461,7 +461,7 @@ def get_interact(cfg: dict) -> None:
                 "targetStrand",
             ]
         ]
-        .sort_values(by=["chrom", "chromStart"])
+        .sort_values(by=["chrom", "chromStart"], ignore_index=True)
     )
 
     (cfg["data_dir"] / "result" / "hic" / "interact").mkdir(exist_ok=True, parents=True)

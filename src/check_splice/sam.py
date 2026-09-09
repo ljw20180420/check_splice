@@ -192,6 +192,12 @@ def filter_precursor_bam(cfg: dict, bam_file: os.PathLike, strand: str) -> None:
                         outfile.write(read)
                         break
 
+    samtools = sh.Command("samtools")
+    samtools(
+        "index",
+        os.fspath(filtered_bam_file),
+    )
+
 
 def filter_splice_bam(cfg: dict, bam_file: os.PathLike) -> None:
     with pysam.AlignmentFile(bam_file, "rb") as infile:
@@ -214,6 +220,12 @@ def filter_splice_bam(cfg: dict, bam_file: os.PathLike) -> None:
                     if i > 0:
                         outfile.write(read)
                         break
+
+    samtools = sh.Command("samtools")
+    samtools(
+        "index",
+        os.fspath(filtered_bam_file),
+    )
 
 
 def filter_bam_all(cfg: dict) -> None:
