@@ -347,7 +347,6 @@ def get_exon_pre(cfg: dict):
 
 
 def construct_artifact_bw(cfg: dict) -> None:
-    df_exon_pre = pd.read_csv(cfg["data_dir"] / "result" / "exon_pre.csv", header=0)
     df_splice = (
         pd
         .read_csv(cfg["data_dir"] / "result" / "splice.csv", header=0)
@@ -365,17 +364,6 @@ def construct_artifact_bw(cfg: dict) -> None:
                     else:
                         treat = "tag"
 
-                df_exon_pre_slice = df_exon_pre.query(
-                    "exp == @exp and protein == @protein and treat == @treat"
-                ).assign(**{
-                    "exon %": lambda df: (
-                        df["exon_count"] / (df["exon_count"] + df["pre_count"]) * 100
-                    )
-                })
-
-                if len(df_exon_pre_slice) == 0:
-                    continue
-
                 df_splice_slice = df_splice.query(
                     "exp == @exp and protein == @protein and treat == @treat"
                 ).assign(**{
@@ -383,6 +371,9 @@ def construct_artifact_bw(cfg: dict) -> None:
                         df["connect"] / (df["connect"] + df["cover.start"]) * 100
                     )
                 })
+
+                if len(df_splice_slice) == 0:
+                    continue
 
                 (cfg["data_dir"] / "result" / "bw").mkdir(exist_ok=True, parents=True)
                 bw_file = (
@@ -392,10 +383,8 @@ def construct_artifact_bw(cfg: dict) -> None:
                 df_pv = (
                     pd
                     .DataFrame({
-                        "start": df_exon_pre_slice["start"].to_list()
-                        + df_splice_slice["start"].to_list(),
-                        "value": df_exon_pre_slice["exon %"].to_list()
-                        + df_splice_slice["splice %"].fillna(0.0).to_list(),
+                        "start": df_splice_slice["start"].to_list(),
+                        "value": df_splice_slice["splice %"].fillna(0.0).to_list(),
                     })
                     .assign(
                         end=lambda df: df["start"] + 1,
@@ -550,44 +539,24 @@ def draw_links(
         / f"{exp}_{protein}_{treat}.r.bedpe"
     )
 
-    diff_f_increase = (
-        cfg["data_dir"]
-        / "result"
-        / "hic"
-        / "bedpe"
-        / f"{exp}_{protein}_diff.up.f.bedpe"
-    )
-    diff_r_increase = (
-        cfg["data_dir"]
-        / "result"
-        / "hic"
-        / "bedpe"
-        / f"{exp}_{protein}_diff.up.r.bedpe"
-    )
-    diff_f_decrease = (
-        cfg["data_dir"]
-        / "result"
-        / "hic"
-        / "bedpe"
-        / f"{exp}_{protein}_diff.down.f.bedpe"
-    )
-    diff_r_decrease = (
-        cfg["data_dir"]
-        / "result"
-        / "hic"
-        / "bedpe"
-        / f"{exp}_{protein}_diff.down.r.bedpe"
-    )
-
     (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
 
-    score_to_width = "0.5 + score * 10"  # score is RPM
-    height = 5
+    chrom = cfg[cluster]["chrom"]
+    start = cfg[cluster]["start"]
+    end = cfg[cluster]["end"]
+    score_to_width = "0.5 + score"  # score is RPM
+    diameter_to_height = f"0.5 * max_height * diameter / ({end} - {start})"
+    height = 1.5
+    tapered = 0.2
     frame = (
-        XAxis(name="hg19")
+        Frame(width=18)
+        + XAxis(name="hg19")
         + BEDPE(
             os.fspath(control_f),
             score_to_width=score_to_width,
+            diameter_to_height=diameter_to_height,
+            tapered=tapered,
+            fill=False,
             color=cfg["color"]["WT"],
             height=height,
             title="control",
@@ -601,6 +570,9 @@ def draw_links(
         + BEDPE(
             os.fspath(control_r),
             score_to_width=score_to_width,
+            diameter_to_height=diameter_to_height,
+            tapered=tapered,
+            fill=False,
             color=cfg["color"]["WT"],
             height=height,
             title="control",
@@ -609,6 +581,9 @@ def draw_links(
         + BEDPE(
             os.fspath(treat_f),
             score_to_width=score_to_width,
+            diameter_to_height=diameter_to_height,
+            tapered=tapered,
+            fill=False,
             color=cfg["color"][protein],
             height=height,
             title=treat,
@@ -622,40 +597,12 @@ def draw_links(
         + BEDPE(
             os.fspath(treat_r),
             score_to_width=score_to_width,
+            diameter_to_height=diameter_to_height,
+            tapered=tapered,
+            fill=False,
             color=cfg["color"][protein],
             height=height,
             title=treat,
-            orientation="inverted",
-        )
-        + BEDPE(
-            os.fspath(diff_f_increase),
-            score_to_width=score_to_width,
-            color=cfg["color"]["INCREASE"],
-            height=height,
-            title="diff",
-        )
-        + BEDPECoverage(
-            os.fspath(diff_f_decrease),
-            score_to_width=score_to_width,
-            color=cfg["color"]["DECREASE"],
-        )
-        + BED(
-            os.fspath(cfg["data_dir"] / "result" / "hg19.12.bed"),
-            display="collapsed",
-            labels=False,
-            title=cluster,
-        )
-        + BEDPE(
-            os.fspath(diff_r_increase),
-            score_to_width=score_to_width,
-            color=cfg["color"]["INCREASE"],
-            height=height,
-            title="diff",
-        )
-        + BEDPECoverage(
-            os.fspath(diff_r_decrease),
-            score_to_width=score_to_width,
-            color=cfg["color"]["DECREASE"],
             orientation="inverted",
         )
         + FrameTitle(protein)
@@ -667,9 +614,7 @@ def draw_links(
         / "draw"
         / f"{exp}_{protein}_{cluster}_links.pdf"
     )
-    chrom = cfg[cluster]["chrom"]
-    start = cfg[cluster]["start"]
-    end = cfg[cluster]["end"]
+
     fig = frame.plot(chrom, start, end)
     fig.savefig(os.fspath(link_file))
     plt.close(fig)
@@ -692,9 +637,6 @@ def draw_pre_exons(
 
     treat_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
 
-    diff_up_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_diff.up.bw"
-    diff_down_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_diff.down.bw"
-
     (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
 
     chrom = cfg[cluster]["chrom"]
@@ -713,9 +655,10 @@ def draw_pre_exons(
     else:
         yup = 0
 
-    height = 5
+    height = 1
     frame = (
-        XAxis(name="hg19")
+        Frame(width=18)
+        + XAxis(name="hg19")
         + BED(
             os.fspath(cfg["data_dir"] / "result" / "hg19.12.bed"),
             display="collapsed",
@@ -730,6 +673,7 @@ def draw_pre_exons(
             height=height,
             title="control",
         )
+        + Spacer(0.5)
         + BigWig(
             os.fspath(treat_bw),
             min_value=0,
@@ -738,23 +682,7 @@ def draw_pre_exons(
             height=height,
             title=treat,
         )
-        + BigWig(
-            os.fspath(diff_up_bw),
-            min_value=0,
-            max_value=yup,
-            color=cfg["color"]["INCREASE"],
-            height=height,
-            title="increase",
-        )
-        + BigWig(
-            os.fspath(diff_down_bw),
-            min_value=0,
-            max_value=yup,
-            color=cfg["color"]["DECREASE"],
-            height=height,
-            title="decrease",
-            orientation="inverted",
-        )
+        + Spacer(0.5)
         + FrameTitle(protein)
     )
     pre_exon_file = (
@@ -771,8 +699,8 @@ def draw_pre_exons(
     return pre_exon_file
 
 
-def draw_all(cfg: dict):
-    for exp in ["total", "rna"]:
+def draw_all(cfg: dict) -> None:
+    for exp in ["total", "rna", "clip", "pro"]:
         pdf_files = []
         with pypdf.PdfWriter() as pdf_writer:
             for protein in ["NP220", "MPP8", "PPHLN1", "TASOR"]:
