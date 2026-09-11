@@ -12,6 +12,61 @@ import sh
 from pyarrow import ipc
 
 
+def get_total_count(cfg: dict) -> None:
+    exps = []
+    proteins = []
+    clones = []
+    reps = []
+    total_counts = []
+    for bamfile in os.listdir(cfg["data_dir"] / "bam"):
+        if not bamfile.endswith(".bam"):
+            continue
+
+        exp, protein, clone, rep = bamfile.removesuffix(".bam").split("_")
+        bamfile = cfg["data_dir"] / "bam" / bamfile
+        with pysam.AlignmentFile(os.fspath(bamfile)) as bam:
+            total_count = sum(
+                1
+                for read in bam
+                if not read.is_secondary
+                and read.is_mapped
+                and not read.is_supplementary
+            )
+
+        print(bamfile, total_count)
+
+        exps.append(exp)
+        proteins.append(protein)
+        clones.append(clone)
+        reps.append(rep)
+        total_counts.append(total_count)
+
+    pd.DataFrame({
+        "exp": exps,
+        "protein": proteins,
+        "clone": clones,
+        "rep": reps,
+        "total_count": total_counts,
+    }).to_csv(cfg["data_dir"] / "result" / "total_count.csv", index=False)
+
+
+def select_total_count(cfg: dict, exp: str, protein: str, treat: str) -> int:
+    df_total = pd.read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
+    df_total = (
+        df_total
+        .assign(treat=lambda df: get_treat(df))
+        .groupby(["exp", "protein", "treat"])["total_count"]
+        .sum()
+        .reset_index()
+    )
+
+    total_count = df_total.query(
+        "exp == @exp and protein == @protein and treat == @treat"
+    )["total_count"].item()
+
+    return total_count
+
+
 def jsonl2feather(jsonl_file: os.PathLike, feather_file: os.PathLike):
     writer = None
     # Stream JSON in chunks of 10,000 rows
@@ -63,73 +118,6 @@ def pair_to_hic(
     shutil.move(f"{os.fspath(hic_file.with_suffix('.m.hic'))}", os.fspath(hic_file))
 
     subprocess.run(args=["hictk", "balance", "scale", os.fspath(hic_file)], check=False)
-
-
-def prepare_gene_bed12(cfg: dict) -> None:
-    gtfToGenePred = sh.Command("gtfToGenePred")
-    gtfToGenePred(
-        "-genePredExt",
-        os.fspath(cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.gtf"),
-        os.fspath(cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.gp"),
-    )
-    df_gp = pd.read_csv(
-        cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.gp", sep="\t", header=None
-    )
-    df_gp[[11] + list(range(1, 15))].to_csv(
-        cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.gp",
-        sep="\t",
-        header=False,
-        index=False,
-    )
-    genePredToBigGenePred = sh.Command("genePredToBigGenePred")
-    genePredToBigGenePred(
-        os.fspath(cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.gp"),
-        os.fspath(cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.bgp"),
-    )
-    df_bgp = (
-        pd
-        .read_csv(
-            cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.bgp", sep="\t", header=None
-        )[list(range(12))]
-        .rename(
-            columns={
-                0: "chrom",
-                1: "chromStart",
-                2: "chromEnd",
-                3: "name",
-                4: "score",
-                5: "strand",
-                6: "thickStart",
-                7: "thickEnd",
-                8: "itemRgb",
-                9: "blockCount",
-                10: "blockSizes",
-                11: "blockStarts",
-            }
-        )
-        .sort_values(by=["chrom", "chromStart"], ignore_index=True)
-        .query("not name.str.startswith('PCDHA') or blockCount == 4")
-        .query(
-            "not name.str.startswith('PCDHB') or blockCount == 1 or name == 'PCDHB9'"
-        )
-        .query("not name.str.startswith('PCDHB@')")
-        .query("not name.str.startswith('PCDHG') or blockCount == 4")
-        .query("name != 'PCDHA1' or blockSizes.str.startswith('2545')")
-        .query("name != 'PCDHA6' or blockSizes.str.startswith('2526')")
-        .query("name != 'PCDHA10' or blockSizes.str.startswith('2540')")
-        .query("name != 'PCDHGA11' or blockSizes.str.startswith('2610')")
-        .query("name != 'PCDHGC3' or blockSizes.str.startswith('2581')")
-        .query(
-            "name != 'LOC112267934' and name != 'LOC101926905' and name != 'LOC100419552' and name != 'SLC25A2' and name != 'TAF7' and name != 'RN7SL68P'"
-        )
-        .reset_index(drop=True)
-    )
-
-    df_bgp.to_csv(
-        cfg["data_dir"] / "result" / "hg19.12.bed", sep="\t", header=False, index=False
-    )
-    (cfg["data_dir"] / "result" / "hg19.12.bed.bgz").unlink(missing_ok=True)
-    (cfg["data_dir"] / "result" / "hg19.12.bed.bgz.tbi").unlink(missing_ok=True)
 
 
 def get_treat(df: pd.DataFrame) -> pd.Series:
@@ -198,20 +186,3 @@ def get_precursor_pos(cfg: dict) -> pd.DataFrame:
     )
 
     return df_se
-
-
-def get_total_count(cfg: dict, exp: str, protein: str, treat: str) -> int:
-    df_total = pd.read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
-    df_total = (
-        df_total
-        .assign(treat=lambda df: get_treat(df))
-        .groupby(["exp", "protein", "treat"])["total_count"]
-        .sum()
-        .reset_index()
-    )
-
-    total_count = df_total.query(
-        "exp == @exp and protein == @protein and treat == @treat"
-    )["total_count"].item()
-
-    return total_count

@@ -16,7 +16,7 @@ from dna_features_viewer.compute_features_levels import compute_features_levels
 from .utils import (
     bw_merge_adjacent_intervals_with_identical_values,
     get_precursor_pos,
-    get_total_count,
+    select_total_count,
 )
 
 
@@ -25,7 +25,7 @@ def pairs_to_bedpe(cfg: dict) -> None:
     (cfg["data_dir"] / "result" / "hic" / "bedpe").mkdir(parents=True, exist_ok=True)
     for pairs_file in os.listdir(cfg["data_dir"] / "result" / "hic" / "pairs"):
         exp, protein, treat = pairs_file.split(".")[0].split("_", 3)
-        total_count = get_total_count(cfg, exp, protein, treat)
+        total_count = select_total_count(cfg, exp, protein, treat)
 
         pairs_file = cfg["data_dir"] / "result" / "hic" / "pairs" / pairs_file
 
