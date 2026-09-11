@@ -103,7 +103,7 @@ def filter_reads(bamfile: os.PathLike, chrom: str, start: int, end: int):
             yield read
 
 
-def merge_bam(cfg: dict) -> None:
+def merge_bam(cfg: dict, assemble: str) -> None:
     (cfg["data_dir"] / "bam" / "merge").mkdir(exist_ok=True, parents=True)
     samtools = sh.Command("samtools")
     for exp in ["total", "rna", "pro", "clip"]:
@@ -116,44 +116,42 @@ def merge_bam(cfg: dict) -> None:
                         treat = "delta"
                     else:
                         treat = "tag"
-                for mouse in [True, False]:
-                    if mouse:
-                        treat = f"mm{treat}"
+                if assemble == "mm10":
+                    treat = f"mm{treat}"
 
-                    bam_files = []
-                    for bam_file in os.listdir(cfg["data_dir"] / "bam"):
-                        if not bam_file.endswith(".bam"):
-                            continue
-                        exp_, protein_, clone_, _ = bam_file.split("_", 3)
-                        if exp_ != exp or protein_ != protein:
-                            continue
-                        if mouse != clone_.startswith("mm"):
-                            continue
-                        if not mouse and wt != clone_.startswith("WT"):
-                            continue
-                        if mouse and wt != clone_.startswith("mmWT"):
-                            continue
-
-                        bam_file = cfg["data_dir"] / "bam" / bam_file
-                        bam_files.append(os.fspath(bam_file))
-
-                    if not bam_files:
+                bam_files = []
+                for bam_file in os.listdir(cfg["data_dir"] / "bam"):
+                    if not bam_file.endswith(".bam"):
+                        continue
+                    exp_, protein_, clone_, _ = bam_file.split("_", 3)
+                    if exp_ != exp or protein_ != protein:
+                        continue
+                    if (assemble == "mm10") != clone_.startswith("mm"):
+                        continue
+                    if (assemble != "mm10") and wt != clone_.startswith("WT"):
+                        continue
+                    if (assemble == "mm10") and wt != clone_.startswith("mmWT"):
                         continue
 
-                    merge_bam = (
-                        cfg["data_dir"]
-                        / "bam"
-                        / "merge"
-                        / f"{exp}_{protein}_{treat}.bam"
-                    )
-                    samtools(
-                        "merge",
-                        "-f",
-                        "-o",
-                        os.fspath(merge_bam),
-                        *bam_files,
-                    )
-                    samtools("index", os.fspath(merge_bam))
+                    bam_file = cfg["data_dir"] / "bam" / bam_file
+                    bam_files.append(os.fspath(bam_file))
+
+                if not bam_files:
+                    continue
+
+                merge_bam = (
+                    cfg["data_dir"] / "bam" / "merge" / f"{exp}_{protein}_{treat}.bam"
+                )
+                print(merge_bam, bam_files)
+
+                samtools(
+                    "merge",
+                    "-f",
+                    "-o",
+                    os.fspath(merge_bam),
+                    *bam_files,
+                )
+                samtools("index", os.fspath(merge_bam))
 
 
 def filter_precursor_bam(cfg: dict, bam_file: os.PathLike, strand: str) -> None:

@@ -804,31 +804,43 @@ def draw_reads(
     cfg: dict,
     exp: str,
     protein: str,
+    assemble: str,
 ):
+    control = "control" if assemble == "hg19" else "mmcontrol"
     if exp != "clip":
         control_f = (
             cfg["data_dir"]
             / "bam"
             / "merge"
             / "precursor"
-            / f"{exp}_{protein}_control.f.bam"
+            / f"{exp}_{protein}_{control}.f.bam"
         )
         control_r = (
             cfg["data_dir"]
             / "bam"
             / "merge"
             / "precursor"
-            / f"{exp}_{protein}_control.r.bam"
+            / f"{exp}_{protein}_{control}.r.bam"
         )
     else:
         control_f = (
-            cfg["data_dir"] / "bam" / "merge" / "precursor" / f"{exp}_WT_control.f.bam"
+            cfg["data_dir"]
+            / "bam"
+            / "merge"
+            / "precursor"
+            / f"{exp}_WT_{control}.f.bam"
         )
         control_r = (
-            cfg["data_dir"] / "bam" / "merge" / "precursor" / f"{exp}_WT_control.r.bam"
+            cfg["data_dir"]
+            / "bam"
+            / "merge"
+            / "precursor"
+            / f"{exp}_WT_{control}.r.bam"
         )
 
     treat = "delta" if exp != "clip" else "tag"
+    if assemble == "mm10":
+        treat = f"mm{treat}"
 
     treat_f = (
         cfg["data_dir"]
@@ -845,36 +857,44 @@ def draw_reads(
         / f"{exp}_{protein}_{treat}.r.bam"
     )
 
+    if (
+        not control_f.exists()
+        or not control_r.exists()
+        or not treat_f.exists()
+        or not treat_r.exists()
+    ):
+        return
+
     (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
     df_se = (
-        get_precursor_pos(cfg)
-        .query("name.str.startswith('PCDHA')")
+        get_precursor_pos(cfg, assemble)
+        .query("name.str.lower().str.startswith('pcdha')")
         .reset_index(drop=True)
         .sort_values(by="pos", ignore_index=True)
     )
 
     for name, se, pos in zip(df_se["name"], df_se["se"], df_se["pos"]):
-        chrom = cfg["chrom"]
-        start = pos - 150
-        end = pos + 150
+        chrom = cfg[assemble]["chrom"]
+        start = pos - cfg["read_length"]
+        end = pos + cfg["read_length"]
         frame = (
-            XAxis(name="hg19")
+            XAxis(name=assemble)
             + BAM(
                 os.fspath(control_f),
-                length_ratio_thresh=1e-5,
+                length_ratio_thresh=cfg["length_ratio_thresh"],
                 color=cfg["color"]["WT"],
                 height=estimate_height(control_f, chrom, start, end),
                 title="control",
             )
             + BED(
-                os.fspath(cfg["data_dir"] / "result" / "hg19.12.bed"),
+                os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
                 display="collapsed",
                 labels=False,
                 title=f"{name}:{se}",
             )
             + BAM(
                 os.fspath(control_r),
-                length_ratio_thresh=1e-5,
+                length_ratio_thresh=cfg["length_ratio_thresh"],
                 color=cfg["color"]["WT"],
                 height=estimate_height(control_r, chrom, start, end),
                 title="control",
@@ -882,20 +902,20 @@ def draw_reads(
             )
             + BAM(
                 os.fspath(treat_f),
-                length_ratio_thresh=1e-5,
+                length_ratio_thresh=cfg["length_ratio_thresh"],
                 color=cfg["color"][protein],
                 height=estimate_height(treat_f, chrom, start, end),
                 title=treat,
             )
             + BED(
-                os.fspath(cfg["data_dir"] / "result" / "hg19.12.bed"),
+                os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
                 display="collapsed",
                 labels=False,
                 title=f"{name}:{se}",
             )
             + BAM(
                 os.fspath(treat_r),
-                length_ratio_thresh=1e-5,
+                length_ratio_thresh=cfg["length_ratio_thresh"],
                 color=cfg["color"][protein],
                 height=estimate_height(treat_r, chrom, start, end),
                 title=treat,
@@ -917,18 +937,23 @@ def draw_reads(
         yield link_file
 
 
-def draw_reads_all(cfg: dict):
-    for exp in ["total", "rna"]:
+def draw_reads_all(cfg: dict, assemble: str):
+    for exp in ["total", "rna", "pro", "clip"]:
         pdf_files = []
         with pypdf.PdfWriter() as pdf_writer:
             for protein in ["NP220", "MPP8", "PPHLN1", "TASOR"]:
-                for pdf_file in draw_reads(cfg, exp, protein):
+                for pdf_file in draw_reads(cfg, exp, protein, assemble):
                     pdf_writer.append(pdf_file)
                     pdf_files.append(pdf_file)
 
-            pdf_writer.write(
-                cfg["data_dir"] / "result" / "hic" / "draw" / f"{exp}_reads.pdf"
-            )
+            if pdf_files:
+                pdf_writer.write(
+                    cfg["data_dir"]
+                    / "result"
+                    / "hic"
+                    / "draw"
+                    / f"{assemble}_{exp}_reads.pdf"
+                )
 
         for pdf_file in pdf_files:
             pdf_file.unlink()

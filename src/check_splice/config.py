@@ -3,6 +3,8 @@ from pathlib import Path
 
 def pcdh():
     return {
+        "length_ratio_thresh": 1e-5,
+        "read_length": 150,
         "size_before_first": 3000,
         "color": {
             "WT": "#000000",
@@ -39,22 +41,22 @@ def pcdh():
         "mm10": {
             "chrom": "chr18",
             "length": 90702639,
-            "start": 36927858,
-            "end": 37842465,
+            "start": 36923470,
+            "end": 37904446,
             "alpha": {
                 "chrom": "chr18",
-                "start": 36927858,
-                "end": 37194516,
+                "start": 36923470,
+                "end": 37232199,
             },
             "beta": {
                 "chrom": "chr18",
-                "start": 37194516,
-                "end": 37540035,
+                "start": 37232200,
+                "end": 37653385,
             },
             "gamma": {
                 "chrom": "chr18",
-                "start": 37540035,
-                "end": 37842465,
+                "start": 37653386,
+                "end": 37904446,
             },
             "2bit": "/home/ljw/sdb1/ucsc/hubs/myHub/lmm10/lmm10.2bit",
         },
