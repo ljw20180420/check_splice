@@ -1,7 +1,7 @@
 import pandas as pd
 
 
-def get_pCBS(cfg: dict) -> None:
+def get_hg19_pCBS(cfg: dict) -> None:
     shift_file = "pCBS_shift.csv"
     cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
 
