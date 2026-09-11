@@ -24,7 +24,7 @@ def pairs_to_bedpe(cfg: dict) -> None:
     shutil.rmtree(cfg["data_dir"] / "result" / "hic" / "bedpe", ignore_errors=True)
     (cfg["data_dir"] / "result" / "hic" / "bedpe").mkdir(parents=True, exist_ok=True)
     for pairs_file in os.listdir(cfg["data_dir"] / "result" / "hic" / "pairs"):
-        exp, protein, treat = pairs_file.split(".")[0].split("_", 3)
+        exp, protein, treat = pairs_file.removesuffix(".pairs").split("_", 3)
         total_count = select_total_count(cfg, exp, protein, treat)
 
         pairs_file = cfg["data_dir"] / "result" / "hic" / "pairs" / pairs_file
@@ -91,7 +91,8 @@ def pairs_to_bedpe(cfg: dict) -> None:
             ]
         )
 
-        with py2bit.open("/home/ljw/sdb1/ucsc/hubs/myHub/lhg19/lhg19.2bit") as tb:
+        assemble = "mm10" if treat.startswith("mm") else "hg19"
+        with py2bit.open(cfg[assemble]["2bit"]) as tb:
             donors = []
             acceptors = []
             for chrom1, start1, chrom2, start2 in zip(
@@ -259,11 +260,12 @@ def diff_bedpe_all(cfg: dict) -> None:
                 diff_bedpe(cfg, exp, protein, orientation)
 
 
-def get_exon_pre(cfg: dict):
+def get_exon_pre(cfg: dict, assemble: str):
+    assert assemble in ["hg19", "mm10"], "unknown assemble"
     df_cpcdh = (
         pd
-        .read_csv(cfg["data_dir"] / "result" / "cpcdh.csv", header=0)
-        .query("type=='exon' and name.str.startswith('PCDHA')")
+        .read_csv(cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv", header=0)
+        .query("type=='exon' and name.str.lower().str.startswith('pcdha')")
         .reset_index(drop=True)
     )
     df_cpcdh = df_cpcdh.assign(
@@ -285,6 +287,9 @@ def get_exon_pre(cfg: dict):
                         treat = "delta"
                     else:
                         treat = "tag"
+
+                if assemble == "mm10":
+                    treat = f"mm{treat}"
 
                 bam_file = (
                     cfg["data_dir"] / "bam" / "merge" / f"{exp}_{protein}_{treat}.bam"
@@ -342,15 +347,15 @@ def get_exon_pre(cfg: dict):
                 )
 
     pd.concat(dfs, ignore_index=True).to_csv(
-        cfg["data_dir"] / "result" / "exon_pre.csv", index=False
+        cfg["data_dir"] / "result" / f"{assemble}_exon_pre.csv", index=False
     )
 
 
-def construct_artifact_bw(cfg: dict) -> None:
+def construct_artifact_bw(cfg: dict, assemble: str) -> None:
     df_splice = (
         pd
-        .read_csv(cfg["data_dir"] / "result" / "splice.csv", header=0)
-        .query("name.str.startswith('PCDHA')")
+        .read_csv(cfg["data_dir"] / "result" / f"{assemble}_splice.csv", header=0)
+        .query("name.str.lower().str.startswith('pcdha')")
         .reset_index(drop=True)
     )
     for exp in ["total", "rna", "pro", "clip"]:
@@ -363,6 +368,9 @@ def construct_artifact_bw(cfg: dict) -> None:
                         treat = "delta"
                     else:
                         treat = "tag"
+
+                if assemble == "mm10":
+                    treat = f"mm{treat}"
 
                 df_splice_slice = df_splice.query(
                     "exp == @exp and protein == @protein and treat == @treat"
@@ -398,12 +406,12 @@ def construct_artifact_bw(cfg: dict) -> None:
                         [
                             pd.DataFrame({
                                 "start": [
-                                    cfg["start"],
+                                    cfg[assemble]["start"],
                                     df_pv["end"].to_list()[-1],
                                 ],
                                 "end": [
                                     df_pv["start"].to_list()[0],
-                                    cfg["end"],
+                                    cfg[assemble]["end"],
                                 ],
                                 "value": 0.0,
                             }),
@@ -416,12 +424,12 @@ def construct_artifact_bw(cfg: dict) -> None:
                         ],
                         axis=0,
                     )
-                    .assign(chrom="chr5")
+                    .assign(chrom=cfg[assemble]["chrom"])
                     .sort_values(by=["chrom", "start"], ignore_index=True)
                 )
 
                 with pyBigWig.open(os.fspath(bw_file), "w") as bw:
-                    bw.addHeader([("chr5", 180915260)])
+                    bw.addHeader([(cfg[assemble]["chrom"], cfg[assemble]["length"])])
                     bw.addEntries(
                         df_pv["chrom"].to_list(),
                         df_pv["start"].to_list(),
@@ -430,31 +438,38 @@ def construct_artifact_bw(cfg: dict) -> None:
                     )
 
 
-def construct_diff_bw(cfg: dict) -> None:
-    chrom = cfg["chrom"]
-    start = cfg["start"]
-    end = cfg["end"]
+def construct_diff_bw(cfg: dict, assemble: str) -> None:
+    assert assemble in ["hg19", "mm10"], "unknown assemble"
+    control = "control" if assemble == "hg19" else "mmcontrol"
+    chrom = cfg[assemble]["chrom"]
+    start = cfg[assemble]["start"]
+    end = cfg[assemble]["end"]
     for exp in ["total", "rna", "pro", "clip"]:
         for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
             if exp != "clip":
                 control_bw = (
-                    cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_control.bw"
+                    cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{control}.bw"
                 )
             else:
-                control_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_WT_control.bw"
+                control_bw = (
+                    cfg["data_dir"] / "result" / "bw" / f"{exp}_WT_{control}.bw"
+                )
 
             treat = "delta" if exp != "clip" else "tag"
+            if assemble == "mm10":
+                treat = f"mm{treat}"
 
             treat_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
 
             if not control_bw.exists() or not treat_bw.exists():
                 continue
 
+            diff = "diff" if assemble == "hg19" else "mmdiff"
             diff_up_bw = (
-                cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_diff.up.bw"
+                cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{diff}.up.bw"
             )
             diff_down_bw = (
-                cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_diff.down.bw"
+                cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{diff}.down.bw"
             )
 
             with (
@@ -477,17 +492,17 @@ def construct_diff_bw(cfg: dict) -> None:
                     )
                 )
 
-                dub.addHeader([("chr5", 180915260)])
+                dub.addHeader([(cfg[assemble]["chrom"], cfg[assemble]["length"])])
                 dub.addEntries(
-                    [chrom] * len(starts),
+                    [cfg[assemble]["chrom"]] * len(starts),
                     starts,
                     ends=ends,
                     values=np.maximum(diff_values, 0.0),
                 )
 
-                ddb.addHeader([("chr5", 180915260)])
+                ddb.addHeader([(cfg[assemble]["chrom"], cfg[assemble]["length"])])
                 ddb.addEntries(
-                    [chrom] * len(starts),
+                    [cfg[assemble]["chrom"]] * len(starts),
                     starts,
                     ends=ends,
                     values=-np.minimum(diff_values, 0.0),
@@ -499,31 +514,36 @@ def draw_links(
     exp: str,
     protein: str,
     cluster: str,
+    assemble: str,
 ) -> os.PathLike:
+    control = "control" if assemble == "hg19" else "mmcontrol"
     if exp != "clip":
         control_f = (
             cfg["data_dir"]
             / "result"
             / "hic"
             / "bedpe"
-            / f"{exp}_{protein}_control.f.bedpe"
+            / f"{exp}_{protein}_{control}.f.bedpe"
         )
         control_r = (
             cfg["data_dir"]
             / "result"
             / "hic"
             / "bedpe"
-            / f"{exp}_{protein}_control.r.bedpe"
+            / f"{exp}_{protein}_{control}.r.bedpe"
         )
     else:
         control_f = (
-            cfg["data_dir"] / "result" / "hic" / "bedpe" / f"{exp}_WT_control.f.bedpe"
+            cfg["data_dir"] / "result" / "hic" / "bedpe" / f"{exp}_WT_{control}.f.bedpe"
         )
         control_r = (
-            cfg["data_dir"] / "result" / "hic" / "bedpe" / f"{exp}_WT_control.r.bedpe"
+            cfg["data_dir"] / "result" / "hic" / "bedpe" / f"{exp}_WT_{control}.r.bedpe"
         )
 
     treat = "delta" if exp != "clip" else "tag"
+    if assemble == "mm10":
+        treat = f"mm{treat}"
+
     treat_f = (
         cfg["data_dir"]
         / "result"
@@ -539,30 +559,37 @@ def draw_links(
         / f"{exp}_{protein}_{treat}.r.bedpe"
     )
 
+    if (
+        not control_f.exists()
+        or not control_r.exists()
+        or not treat_f.exists()
+        or not treat_r.exists()
+    ):
+        return None
+
     (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
 
-    chrom = cfg[cluster]["chrom"]
-    start = cfg[cluster]["start"]
-    end = cfg[cluster]["end"]
+    chrom = cfg[assemble][cluster]["chrom"]
+    start = cfg[assemble][cluster]["start"]
+    end = cfg[assemble][cluster]["end"]
     score_to_width = "0.5 + score"  # score is RPM
     diameter_to_height = f"0.5 * max_height * diameter / ({end} - {start})"
     height = 1.5
     tapered = 0.2
     frame = (
         Frame(width=18)
-        + XAxis(name="hg19")
+        + XAxis(name=assemble)
         + BEDPE(
             os.fspath(control_f),
             score_to_width=score_to_width,
             diameter_to_height=diameter_to_height,
             tapered=tapered,
-            fill=False,
             color=cfg["color"]["WT"],
             height=height,
             title="control",
         )
         + BED(
-            os.fspath(cfg["data_dir"] / "result" / "hg19.12.bed"),
+            os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
             display="collapsed",
             labels=False,
             title=cluster,
@@ -572,7 +599,6 @@ def draw_links(
             score_to_width=score_to_width,
             diameter_to_height=diameter_to_height,
             tapered=tapered,
-            fill=False,
             color=cfg["color"]["WT"],
             height=height,
             title="control",
@@ -583,13 +609,12 @@ def draw_links(
             score_to_width=score_to_width,
             diameter_to_height=diameter_to_height,
             tapered=tapered,
-            fill=False,
             color=cfg["color"][protein],
             height=height,
             title=treat,
         )
         + BED(
-            os.fspath(cfg["data_dir"] / "result" / "hg19.12.bed"),
+            os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
             display="collapsed",
             labels=False,
             title=cluster,
@@ -599,7 +624,6 @@ def draw_links(
             score_to_width=score_to_width,
             diameter_to_height=diameter_to_height,
             tapered=tapered,
-            fill=False,
             color=cfg["color"][protein],
             height=height,
             title=treat,
@@ -612,7 +636,7 @@ def draw_links(
         / "result"
         / "hic"
         / "draw"
-        / f"{exp}_{protein}_{cluster}_links.pdf"
+        / f"{assemble}_{exp}_{protein}_{cluster}_links.pdf"
     )
 
     fig = frame.plot(chrom, start, end)
@@ -627,21 +651,28 @@ def draw_pre_exons(
     exp: str,
     protein: str,
     cluster: str,
+    assemble: str,
 ) -> os.PathLike:
+    control = "control" if assemble == "hg19" else "mmcontrol"
     if exp != "clip":
-        control_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_control.bw"
+        control_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{control}.bw"
     else:
-        control_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_WT_control.bw"
+        control_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_WT_{control}.bw"
 
     treat = "delta" if exp != "clip" else "tag"
+    if assemble == "mm10":
+        treat = f"mm{treat}"
 
     treat_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
 
+    if not control_bw.exists() or not treat_bw.exists():
+        return None
+
     (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
 
-    chrom = cfg[cluster]["chrom"]
-    start = cfg[cluster]["start"]
-    end = cfg[cluster]["end"]
+    chrom = cfg[assemble][cluster]["chrom"]
+    start = cfg[assemble][cluster]["start"]
+    end = cfg[assemble][cluster]["end"]
 
     max_heights = []
     for bwfile in [control_bw, treat_bw]:
@@ -658,9 +689,9 @@ def draw_pre_exons(
     height = 1
     frame = (
         Frame(width=18)
-        + XAxis(name="hg19")
+        + XAxis(name=assemble)
         + BED(
-            os.fspath(cfg["data_dir"] / "result" / "hg19.12.bed"),
+            os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
             display="collapsed",
             labels=False,
             title=cluster,
@@ -690,7 +721,7 @@ def draw_pre_exons(
         / "result"
         / "hic"
         / "draw"
-        / f"{exp}_{protein}_{cluster}_pre_exon.pdf"
+        / f"{assemble}_{exp}_{protein}_{cluster}_pre_exon.pdf"
     )
     fig = frame.plot(chrom, start, end)
     fig.savefig(os.fspath(pre_exon_file))
@@ -699,7 +730,7 @@ def draw_pre_exons(
     return pre_exon_file
 
 
-def draw_all(cfg: dict) -> None:
+def draw_all(cfg: dict, assemble: str) -> None:
     for exp in ["total", "rna", "clip", "pro"]:
         pdf_files = []
         with pypdf.PdfWriter() as pdf_writer:
@@ -710,20 +741,31 @@ def draw_all(cfg: dict) -> None:
                         exp=exp,
                         protein=protein,
                         cluster=cluster,
+                        assemble=assemble,
                     )
-                    pdf_writer.append(pdf_file)
-                    pdf_files.append(pdf_file)
+                    if pdf_file is not None:
+                        pdf_writer.append(pdf_file)
+                        pdf_files.append(pdf_file)
 
                     pdf_file = draw_pre_exons(
                         cfg,
                         exp=exp,
                         protein=protein,
                         cluster=cluster,
+                        assemble=assemble,
                     )
-                    pdf_writer.append(pdf_file)
-                    pdf_files.append(pdf_file)
+                    if pdf_file is not None:
+                        pdf_writer.append(pdf_file)
+                        pdf_files.append(pdf_file)
 
-            pdf_writer.write(cfg["data_dir"] / "result" / "hic" / "draw" / f"{exp}.pdf")
+            if pdf_files:
+                pdf_writer.write(
+                    cfg["data_dir"]
+                    / "result"
+                    / "hic"
+                    / "draw"
+                    / f"{assemble}_{exp}.pdf"
+                )
 
         for pdf_file in pdf_files:
             pdf_file.unlink()

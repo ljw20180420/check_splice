@@ -6,7 +6,7 @@ from .sam import filter_reads, parse_block_with_flip
 
 
 def process_locus(
-    samfile: os.PathLike,
+    bamfile: os.PathLike,
     chrom: str,
     start: int,
     end: int,
@@ -15,8 +15,8 @@ def process_locus(
     exon_end_extend: int,
     flip: str,
 ):
-    samfile = pathlib.Path(os.fspath(samfile))
-    exp, protein, clone, rep = samfile.stem.split("_")
+    bamfile = pathlib.Path(os.fspath(bamfile))
+    exp, protein, clone, rep = bamfile.stem.split("_")
     (
         introns,
         intron_starts,
@@ -30,7 +30,7 @@ def process_locus(
         "clone": clone,
         "rep": rep,
     }
-    for read in filter_reads(samfile, chrom, start, end):
+    for read in filter_reads(bamfile, chrom, start, end):
         info |= {
             "query_name": read.query_name,
             "is_forward": read.is_forward,
@@ -71,21 +71,31 @@ def process_locus(
             yield info.copy()
 
 
-def process_all(cfg: dict):
+def process_all(cfg: dict, assemble: str):
     bam_dir = cfg["data_dir"] / "bam"
-    chrom = cfg["chrom"]
-    start = cfg["start"]
-    end = cfg["end"]
-    cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
+    chrom = cfg[assemble]["chrom"]
+    start = cfg[assemble]["start"]
+    end = cfg[assemble]["end"]
+    cpcdh_file = cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv"
     cover_threshold = cfg["cover_threshold"]
     exon_end_extend = cfg["exon_end_extend"]
 
-    for samfile in os.listdir(bam_dir):
-        if not samfile.endswith(".bam"):
+    for bamfile in os.listdir(bam_dir):
+        if not bamfile.endswith(".bam"):
             continue
 
+        exp, protein, clone, rep = bamfile.removesuffix(".bam").split("_")
+        if assemble == "hg19":
+            if clone.startswith("mm"):
+                continue
+        elif assemble == "mm10":
+            if not clone.startswith("mm"):
+                continue
+        else:
+            raise ValueError("unknown assemble")
+
         yield from process_locus(
-            samfile=bam_dir / samfile,
+            bamfile=bam_dir / bamfile,
             chrom=chrom,
             start=start,
             end=end,

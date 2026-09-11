@@ -121,8 +121,19 @@ def pair_to_hic(
 
 
 def get_treat(df: pd.DataFrame) -> pd.Series:
-    treat = df["clone"].map(lambda ele: "control" if ele.startswith("WT") else "delta")
-    treat = treat.where((df["exp"] != "clip") | (treat == "control"), "tag")
+    treat = df["clone"].map(
+        lambda ele: (
+            "mmcontrol"
+            if ele.startswith("mmWT")
+            else "mmdelta"
+            if ele.startswith("mm")
+            else "control"
+            if ele.startswith("WT")
+            else "delta"
+        )
+    )
+    treat = treat.where((df["exp"] != "clip") | (treat.str.contains("control")), "tag")
+    treat = treat.where((treat != "tag") | (~df["clone"].str.startswith("mm")), "mmtag")
 
     return treat
 
@@ -172,10 +183,10 @@ def bw_merge_adjacent_intervals_with_identical_values(
     return starts, ends, values
 
 
-def get_precursor_pos(cfg: dict) -> pd.DataFrame:
+def get_precursor_pos(cfg: dict, assemble: str) -> pd.DataFrame:
     df_se = (
         pd
-        .read_csv(cfg["data_dir"] / "result" / "cpcdh.csv")
+        .read_csv(cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv")
         .query("type == 'exon'")
         .melt(
             id_vars=["chrom", "name"],

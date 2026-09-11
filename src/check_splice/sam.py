@@ -86,8 +86,8 @@ def parse_block_with_flip(read: pysam.AlignedSegment, flip: str) -> list:
     return flip_blocks
 
 
-def filter_reads(samfile: os.PathLike, chrom: str, start: int, end: int):
-    with pysam.AlignmentFile(os.fspath(samfile)) as fd:
+def filter_reads(bamfile: os.PathLike, chrom: str, start: int, end: int):
+    with pysam.AlignmentFile(os.fspath(bamfile)) as fd:
         for read in fd.fetch(
             contig=chrom,
             start=start,
@@ -157,14 +157,20 @@ def merge_bam(cfg: dict) -> None:
 
 
 def filter_precursor_bam(cfg: dict, bam_file: os.PathLike, strand: str) -> None:
-    df_se = get_precursor_pos(cfg)
+    exp, protein, treat = bam_file.name.removesuffix(".bam").split("_")
+    assemble = "hg19" if not treat.startswith("mm") else "mm10"
+    df_se = get_precursor_pos(cfg, assemble)
     with pysam.AlignmentFile(bam_file, "rb") as infile:
         filtered_bam_file = (
             bam_file.with_name("precursor")
             / bam_file.with_suffix(f".{strand}.bam").name
         )
         with pysam.AlignmentFile(filtered_bam_file, "wb", template=infile) as outfile:
-            for read in infile.fetch(cfg["chrom"], cfg["start"], cfg["end"]):
+            for read in infile.fetch(
+                cfg[assemble]["chrom"],
+                cfg[assemble]["start"],
+                cfg[assemble]["end"],
+            ):
                 if read.is_secondary:
                     continue
                 if not read.is_mapped:
@@ -208,10 +214,14 @@ def filter_precursor_bam(cfg: dict, bam_file: os.PathLike, strand: str) -> None:
 
 
 def filter_splice_bam(cfg: dict, bam_file: os.PathLike) -> None:
+    exp, protein, treat = bam_file.name.removesuffix(".bam").split("_")
+    assemble = "hg19" if not treat.startswith("mm") else "mm10"
     with pysam.AlignmentFile(bam_file, "rb") as infile:
         filtered_bam_file = bam_file.with_name("splice") / bam_file.name
         with pysam.AlignmentFile(filtered_bam_file, "wb", template=infile) as outfile:
-            for read in infile.fetch(cfg["chrom"], cfg["start"], cfg["end"]):
+            for read in infile.fetch(
+                cfg[assemble]["chrom"], cfg[assemble]["start"], cfg[assemble]["end"]
+            ):
                 if read.is_secondary:
                     continue
                 if not read.is_mapped:

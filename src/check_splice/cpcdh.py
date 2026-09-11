@@ -310,6 +310,8 @@ def get_mm10_cpcdh_exon(gtffile: os.PathLike) -> pd.DataFrame:
         .astype({"start": "int64", "end": "int64"})
         .sort_values(by=["start", "end"], ignore_index=True)
     )
+    df.loc[df["name"] == "Pcdhgb8", "CDS_start"] = 37761878
+    df.loc[df["name"] == "Pcdhgb8", "CDS_end"] = 37764299
 
     return df
 

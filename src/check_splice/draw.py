@@ -19,16 +19,16 @@ from plotnine import (
 matplotlib.use("agg")
 
 
-def splice_heatmap(cfg: dict):
-    df = pd.read_csv(cfg["data_dir"] / "result" / "splice.csv", header=0)
+def splice_heatmap(cfg: dict, assemble: str):
+    df = pd.read_csv(cfg["data_dir"] / "result" / f"{assemble}_splice.csv", header=0)
     df = df.assign(
         name=lambda df: pd.Categorical(
             df["name"], categories=df["name"].drop_duplicates(), ordered=True
         ),
         protein_treat=lambda df: df["protein"] + "_" + df["treat"],
     ).assign(**{
-        "splice (RPM)": lambda df: df["connect"] / df["total_count"] * 1000_000,
-        "precursor (RPM)": lambda df: df["cover.start"] / df["total_count"] * 1000_000,
+        "splice (RPM)": lambda df: df["connect"] / df["total_count"] * 1_000_000,
+        "precursor (RPM)": lambda df: df["cover.start"] / df["total_count"] * 1_000_000,
         "splice %": lambda df: (
             df["connect"] / (df["cover.start"] + df["connect"]) * 100
         ),
@@ -46,7 +46,9 @@ def splice_heatmap(cfg: dict):
     with pypdf.PdfWriter() as pdf_writer:
         for exp in df["exp"].unique():
             for target in targets:
-                df_slice = df.query("name.str.startswith('PCDHA') and exp == @exp")
+                df_slice = df.query(
+                    "name.str.lower().str.startswith('pcdha') and exp == @exp"
+                )
                 (
                     ggplot(
                         data=df_slice,
@@ -61,7 +63,7 @@ def splice_heatmap(cfg: dict):
 
                 pdf_writer.append(cfg["data_dir"] / "result" / f"{target}_{exp}.pdf")
 
-        pdf_writer.write(cfg["data_dir"] / "result" / "splice.pdf")
+        pdf_writer.write(cfg["data_dir"] / "result" / f"{assemble}_splice.pdf")
 
         for target in targets:
             for exp in df["exp"].unique():
@@ -75,8 +77,9 @@ def around_heatmap(
     center_axis_name: str,
     title: str,
     unit: str,
+    assemble: str,
 ) -> os.PathLike:
-    pdf_file = cfg["data_dir"] / "result" / f"{title}.pdf"
+    pdf_file = cfg["data_dir"] / "result" / f"{assemble}_{title}.pdf"
 
     (
         ggplot(

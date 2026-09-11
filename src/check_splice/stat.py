@@ -6,7 +6,7 @@ import pandas as pd
 import pypdf
 
 from .draw import around_heatmap
-from .utils import get_treat
+from .utils import get_treat, select_total_count
 
 matplotlib.use("agg")
 
@@ -17,12 +17,12 @@ def swap_elements(vec: list, a: str, b: str) -> list:
     return vec
 
 
-def splice(cfg: dict) -> None:
-    cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
+def splice(cfg: dict, assemble: str) -> None:
+    cpcdh_file = cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv"
     df_cpcdh = pd.read_csv(cpcdh_file, header=0)
     intron_names = df_cpcdh.query("type=='intron'")["name"].to_list()
 
-    read_file = cfg["data_dir"] / "result" / "reads.feather"
+    read_file = cfg["data_dir"] / "result" / f"{assemble}_reads.feather"
     df = pd.read_feather(read_file)
 
     mask = np.any(
@@ -43,15 +43,6 @@ def splice(cfg: dict) -> None:
         .reset_index()
     )
 
-    df_total = pd.read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
-    df_total = (
-        df_total
-        .assign(treat=lambda df: get_treat(df))
-        .groupby(["exp", "protein", "treat"])["total_count"]
-        .sum()
-        .reset_index()
-    )
-
     df = (
         df
         .assign(treat=lambda df: get_treat(df))
@@ -61,8 +52,11 @@ def splice(cfg: dict) -> None:
         })
         .copy()
         .reset_index()
-        .merge(
-            df_total, how="left", on=["exp", "protein", "treat"], validate="many_to_one"
+        .assign(
+            total_count=lambda df: [
+                select_total_count(cfg, exp, protein, treat)
+                for exp, protein, treat in zip(df["exp"], df["protein"], df["treat"])
+            ]
         )
     )
 
@@ -102,7 +96,7 @@ def splice(cfg: dict) -> None:
 
     df = df[swap_elements(df.columns.to_list(), "cover.start", "cover.end")]
 
-    df.to_csv(cfg["data_dir"] / "result" / "splice.csv", index=False)
+    df.to_csv(cfg["data_dir"] / "result" / f"{assemble}_splice.csv", index=False)
 
 
 def around(
@@ -113,8 +107,9 @@ def around(
     extend: int,
     targets: list[str],
     filter: str,
+    assemble: str,
 ):
-    result_file = cfg["data_dir"] / "result" / "reads.feather"
+    result_file = cfg["data_dir"] / "result" / f"{assemble}_reads.feather"
     df = pd.read_feather(result_file).assign(
         treat=lambda df: get_treat(df),
         exp_protein_treat=lambda df: (
@@ -165,23 +160,7 @@ def around(
 
     yield df_around_agg, "agg", "count"
 
-    df_total = (
-        pd
-        .read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
-        .assign(
-            treat=lambda df: get_treat(df),
-            exp_protein_treat=lambda df: (
-                df["exp"] + "_" + df["protein"] + "_" + df["treat"]
-            ),
-        )
-        .groupby("exp_protein_treat")["total_count"]
-        .sum()
-        .reset_index()
-    )
-
-    for exp_protein_treat, total_count in zip(
-        df_total["exp_protein_treat"], df_total["total_count"]
-    ):
+    for exp_protein_treat in df_around["exp_protein_treat"].unique():
         df_slice = (
             df_around
             .query("exp_protein_treat == @exp_protein_treat")
@@ -200,6 +179,7 @@ def around(
             .reset_index()
         )
 
+        total_count = select_total_count(cfg, *exp_protein_treat.split("_"))
         df_slice = df_slice.assign(
             count=lambda df, total_count=total_count: (
                 df["count"] / total_count * 1_000_000
@@ -209,10 +189,10 @@ def around(
         yield df_slice, exp_protein_treat, "RPM"
 
 
-def read_start_around_exon_start(cfg: dict) -> None:
-    cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
+def read_start_around_exon_start(cfg: dict, assemble: str) -> None:
+    cpcdh_file = cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv"
     df_cpcdh = pd.read_csv(cpcdh_file, header=0)
-    tsses = df_cpcdh.query("type=='exon' and name.str.startswith('PCDH')")[
+    tsses = df_cpcdh.query("type=='exon' and name.str.lower().str.startswith('pcdh')")[
         ["start", "name"]
     ].reset_index(drop=True)
 
@@ -232,10 +212,23 @@ def read_start_around_exon_start(cfg: dict) -> None:
     pdf_files = []
     with pypdf.PdfWriter() as pdf_writer:
         for df, title, unit in around(
-            cfg, centers, center_names, center_axis_name, extend, targets, filter
+            cfg,
+            centers,
+            center_names,
+            center_axis_name,
+            extend,
+            targets,
+            filter,
+            assemble,
         ):
             pdf_file = around_heatmap(
-                cfg, df, center_names, center_axis_name, title, unit
+                cfg,
+                df,
+                center_names,
+                center_axis_name,
+                title,
+                unit,
+                assemble,
             )
             pdf_writer.append(pdf_file)
             pdf_files.append(pdf_file)
@@ -243,17 +236,17 @@ def read_start_around_exon_start(cfg: dict) -> None:
         pdf_writer.write(
             cfg["data_dir"]
             / "result"
-            / f"{target_axis_name}_around_{center_axis_name}.pdf"
+            / f"{assemble}_{target_axis_name}_around_{center_axis_name}.pdf"
         )
 
     for pdf_file in pdf_files:
         pdf_file.unlink()
 
 
-def inrange_end_around_exon_end(cfg: dict) -> None:
-    cpcdh_file = cfg["data_dir"] / "result" / "cpcdh.csv"
+def inrange_end_around_exon_end(cfg: dict, assemble: str) -> None:
+    cpcdh_file = cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv"
     df_cpcdh = pd.read_csv(cpcdh_file, header=0)
-    teses = df_cpcdh.query("type=='exon' and name.str.startswith('PCDH')")[
+    teses = df_cpcdh.query("type=='exon' and name.str.lower().str.startswith('pcdh')")[
         ["end", "name"]
     ].reset_index(drop=True)
 
@@ -273,10 +266,17 @@ def inrange_end_around_exon_end(cfg: dict) -> None:
     pdf_files = []
     with pypdf.PdfWriter() as pdf_writer:
         for df, title, unit in around(
-            cfg, centers, center_names, center_axis_name, extend, targets, filter
+            cfg,
+            centers,
+            center_names,
+            center_axis_name,
+            extend,
+            targets,
+            filter,
+            assemble,
         ):
             pdf_file = around_heatmap(
-                cfg, df, center_names, center_axis_name, title, unit
+                cfg, df, center_names, center_axis_name, title, unit, assemble
             )
             pdf_writer.append(pdf_file)
             pdf_files.append(pdf_file)
@@ -284,14 +284,14 @@ def inrange_end_around_exon_end(cfg: dict) -> None:
         pdf_writer.write(
             cfg["data_dir"]
             / "result"
-            / f"{target_axis_name}_around_{center_axis_name}.pdf"
+            / f"{assemble}_{target_axis_name}_around_{center_axis_name}.pdf"
         )
 
     for pdf_file in pdf_files:
         pdf_file.unlink()
 
 
-def get_pairs(cfg: dict) -> None:
+def get_pairs(cfg: dict, assemble: str) -> None:
     def splice_pair(ele: str) -> list:
         blocks = ele.split(";")
         pairs = []
@@ -318,7 +318,7 @@ def get_pairs(cfg: dict) -> None:
 
         return pairs
 
-    result_file = cfg["data_dir"] / "result" / "reads.feather"
+    result_file = cfg["data_dir"] / "result" / f"{assemble}_reads.feather"
     df = pd.read_feather(result_file).assign(
         treat=lambda df: get_treat(df),
         exp_protein_treat=lambda df: (
@@ -333,7 +333,6 @@ def get_pairs(cfg: dict) -> None:
         .assign(blocks=lambda df: df["blocks"].map(splice_pair))
         .explode("blocks", ignore_index=True)
     )
-
     df = pd.concat(
         [
             df[["exp_protein_treat", "query_name"]].rename(
@@ -356,7 +355,7 @@ def get_pairs(cfg: dict) -> None:
     )
 
     (cfg["data_dir"] / "result" / "hic" / "pairs").mkdir(exist_ok=True, parents=True)
-    for exp_protein_treat in df["exp_protein_treat"].drop_duplicates().to_list():
+    for exp_protein_treat in df["exp_protein_treat"].unique():
         with open(
             cfg["data_dir"] / "result" / "hic" / "pairs" / f"{exp_protein_treat}.pairs",
             "w",
@@ -367,7 +366,7 @@ def get_pairs(cfg: dict) -> None:
             ].to_csv(fd, sep="\t", header=False, index=False)
 
 
-def get_interact(cfg: dict) -> None:
+def get_interact(cfg: dict, assemble: str) -> None:
     def splice_interact(ele: str) -> list:
         blocks = ele.split(";")
         interact = []
@@ -396,7 +395,7 @@ def get_interact(cfg: dict) -> None:
 
         return interact
 
-    result_file = cfg["data_dir"] / "result" / "reads.feather"
+    result_file = cfg["data_dir"] / "result" / f"{assemble}_reads.feather"
     df = pd.read_feather(result_file).assign(
         treat=lambda df: get_treat(df),
         exp_protein_treat=lambda df: (
@@ -465,7 +464,7 @@ def get_interact(cfg: dict) -> None:
     )
 
     (cfg["data_dir"] / "result" / "hic" / "interact").mkdir(exist_ok=True, parents=True)
-    for exp_protein_treat in df["exp"].drop_duplicates().to_list():
+    for exp_protein_treat in df["exp"].unique():
         df.query("exp == @exp_protein_treat").to_csv(
             cfg["data_dir"]
             / "result"
