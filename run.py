@@ -14,7 +14,8 @@
 # ---
 
 # %%
-print("hello")
+# %load_ext autoreload
+# %autoreload 2
 
 # %% vscode={"languageId": "shellscript"}
 # !source src/check_splice/star.sh
