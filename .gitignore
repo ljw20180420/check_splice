@@ -10,4 +10,4 @@ wheels/
 .venv
 
 /rdnaModel
-/run.py
+/run.ipynb
