@@ -67,7 +67,7 @@ def pairs_to_bedpe(cfg: dict) -> None:
                 "strand2",
             ])
             .agg(
-                name=pd.NamedAgg("readID", "first"),
+                name=pd.NamedAgg("readID", lambda se: "|".join(se.tolist())),
                 score=pd.NamedAgg("readID", "count"),
             )
             .reset_index()
@@ -209,8 +209,10 @@ def diff_bedpe(cfg: dict, exp: str, protein: str, orientation: str) -> None:
             "strand2",
         ],
         how="outer",
-    ).assign(
-        name=lambda df: df["name_x"].combine_first(df["name_y"]),
+    )
+
+    df = df.assign(
+        name=lambda df: df["name_x"].fillna("") + "-" + df["name_y"].fillna(""),
         score=lambda df: df["score_x"].fillna(0) - df["score_y"].fillna(0),
     )[
         [

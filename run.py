@@ -8,7 +8,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.5
 #   kernelspec:
-#     display_name: check-splice (3.13.11)
+#     display_name: check-splice (3.13.11.final.0)
 #     language: python
 #     name: python3
 # ---
@@ -109,6 +109,20 @@ cfg = config.pcdh()
 sam.filter_bam_all(cfg)
 
 # %%
+from check_splice import config, ply
+
+cfg = config.pcdh()
+ply.get_plotly_interact(cfg, "hg19")
+ply.get_plotly_interact(cfg, "mm10")
+
+# %%
+from check_splice import config, ply
+
+cfg = config.pcdh()
+ply.draw_interact(cfg, "hg19")
+ply.draw_interact(cfg, "mm10")
+
+# %%
 from check_splice import config, stat
 
 cfg = config.pcdh()
@@ -127,6 +141,12 @@ from check_splice import cb, config
 
 cfg = config.pcdh()
 cb.pairs_to_bedpe(cfg)
+
+# %%
+from check_splice import cb, config
+
+cfg = config.pcdh()
+cb.diff_bedpe_all(cfg)
 
 # %%
 from check_splice import cb, config

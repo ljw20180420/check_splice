@@ -14,6 +14,7 @@ def process_locus(
     cover_threshold: int,
     exon_end_extend: int,
     flip: str,
+    assemble: str,
 ):
     bamfile = pathlib.Path(os.fspath(bamfile))
     exp, protein, clone, rep = bamfile.stem.split("_")
@@ -41,11 +42,16 @@ def process_locus(
             "is_shadow": False,
         }
 
-        blocks = parse_block_with_flip(read, flip)
+        blocks, query_blocks, align_strings = parse_block_with_flip(read, flip)
         info["blocks"] = ";".join([
             f"{block_chrom}:{block_start}:{block_end}:{block_strand}"
             for block_chrom, block_start, block_end, block_strand in blocks
         ])
+        info["query_blocks"] = ";".join([
+            f"{query_block_start}:{query_block_end}"
+            for query_block_start, query_block_end in query_blocks
+        ])
+        info["align_strings"] = ";".join(align_strings)
         info = introns(info, blocks, "connect")
         info = intron_starts(info, blocks, "cover")
         info = intron_ends(info, blocks, "cover")
@@ -54,15 +60,24 @@ def process_locus(
 
         yield info.copy()
 
-        if exp == "rna" and protein in ["MPP8", "PPHLN1", "TASOR"]:
+        if (
+            exp == "rna"
+            and protein in ["MPP8", "PPHLN1", "TASOR"]
+            and assemble == "hg19"
+        ):
             info["is_shadow"] = True
             read.is_read1 = not read.is_read1
 
-            blocks = parse_block_with_flip(read, flip)
+            blocks, query_blocks, align_strings = parse_block_with_flip(read, flip)
             info["blocks"] = ";".join([
                 f"{block_chrom}:{block_start}:{block_end}:{block_strand}"
                 for block_chrom, block_start, block_end, block_strand in blocks
             ])
+            info["query_blocks"] = ";".join([
+                f"{query_block_start}:{query_block_end}"
+                for query_block_start, query_block_end in query_blocks
+            ])
+            info["align_strings"] = ";".join(align_strings)
             info = introns(info, blocks, "connect")
             info = intron_starts(info, blocks, "cover")
             info = intron_ends(info, blocks, "cover")
@@ -103,4 +118,5 @@ def process_all(cfg: dict, assemble: str):
             cover_threshold=cover_threshold,
             exon_end_extend=exon_end_extend,
             flip=cfg["flip"],
+            assemble=assemble,
         )

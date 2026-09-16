@@ -1,38 +1,66 @@
 import os
 import re
 
+import pandas as pd
 import pysam
 import sh
 
 from .utils import get_precursor_pos
 
 
-def parse_cigar(start: int, cigarstring: str):
+def parse_cigar(start: int, cigarstring: str, strand: str, query_length: int):
     blocks = []
+    query_blocks = []
+    align_strings = []
     current_pos = start
     block_start = start
+    query_current_pos = 0
     pattern = re.compile(r"(\d+)([MIDNSHP=XB])")
-    for length, op in pattern.findall(cigarstring):
-        length = int(length)
-        if op in ("M", "D", "=", "X"):  # Operators that consume reference genome space
-            current_pos += length
+    length_ops = [(int(length), op) for length, op in pattern.findall(cigarstring)]
+    if length_ops[0][1] == "S":
+        query_current_pos += length_ops[0][0]
+        length_ops = length_ops[1:]
+    query_block_start = query_current_pos
+    align_string = []
+    for length, op in length_ops:
+        if op in ("=", "X"):
+            op = "M"
+
+        if op in ("M", "I", "D"):
+            align_string.append(f"{length}{op}")
+            if op in ("M", "D"):
+                current_pos += length
+            if op in ("M", "I"):
+                query_current_pos += length
+
         elif op == "N":  # Intron / Reference Skip (N)
             # End the current block before the intron starts
-            if current_pos > block_start:
-                blocks.append((block_start, current_pos))
+            blocks.append((block_start, current_pos))
+            query_blocks.append((query_block_start, query_current_pos))
+            align_strings.append(align_string)
             # Skip past the intron region
             current_pos += length
             # Set the start of the next block to the end of the intron
             block_start = current_pos
-        elif op not in ("I", "S", "H"):
-            # Insertions and clips do not move the reference cursor
-            raise ValueError("unknown cigar operation")
+            query_block_start = query_current_pos
+            align_string = []
 
-    # Append the final block after parsing the last CIGAR operation
-    if current_pos > block_start:
-        blocks.append((block_start, current_pos))
+    blocks.append((block_start, current_pos))
+    query_blocks.append((query_block_start, query_current_pos))
+    align_strings.append("".join(align_string))
 
-    return blocks
+    if strand == "-":
+        query_blocks = [
+            (query_length - query_block_end, query_length - query_block_start)
+            for query_block_start, query_block_end in query_blocks
+        ]
+        align_strings = [
+            "".join(reversed(align_string)) for align_string in align_strings
+        ]
+    else:
+        align_strings = ["".join(align_string) for align_string in align_strings]
+
+    return blocks, query_blocks, align_strings
 
 
 def parse_sa(sa_tag: str):
@@ -58,32 +86,84 @@ def parse_block_without_flip(read: pysam.AlignedSegment):
             strands.append(strand)
             cigars.append(cigar)
 
+    all_chroms = []
+    all_block_starts = []
+    all_block_ends = []
+    all_query_block_starts = []
+    all_query_block_ends = []
+    all_align_strings = []
+    all_strands = []
     for chrom, start, strand, cigar in zip(chroms, starts, strands, cigars):
-        blocks = parse_cigar(start, cigar)
-        if strand == "+":
-            for block_start, block_end in blocks:
-                yield chrom, block_start, block_end, strand
-        else:
-            for block_start, block_end in reversed(blocks):
-                yield chrom, block_start, block_end, strand
+        blocks, query_blocks, align_strings = parse_cigar(
+            start, cigar, strand, read.query_length
+        )
+        for (block_start, block_end), (
+            query_block_start,
+            query_block_end,
+        ), align_string in zip(blocks, query_blocks, align_strings):
+            all_chroms.append(chrom)
+            all_block_starts.append(block_start)
+            all_block_ends.append(block_end)
+            all_query_block_starts.append(query_block_start)
+            all_query_block_ends.append(query_block_end)
+            all_align_strings.append(align_string)
+            all_strands.append(strand)
+
+    return pd.DataFrame({
+        "chrom": all_chroms,
+        "block_start": all_block_starts,
+        "block_end": all_block_ends,
+        "query_block_start": all_query_block_starts,
+        "query_block_end": all_query_block_ends,
+        "align_string": all_align_strings,
+        "strand": all_strands,
+    }).sort_values(by=["query_block_start"], ignore_index=True)
 
 
-def parse_block_with_flip(read: pysam.AlignedSegment, flip: str) -> list:
-    blocks = list(parse_block_without_flip(read))
+def parse_block_with_flip(
+    read: pysam.AlignedSegment, flip: str
+) -> tuple[list, list, list]:
+    df = parse_block_without_flip(read)
     assert flip in ("R1", "R2"), "flip must be either 'R1' or 'R2'"
-    if flip == "R2" and read.is_read1 or flip == "R1" and read.is_read2:
-        return blocks
+    if flip == "R1" and read.is_read1 or flip == "R2" and read.is_read2:
+        pattern = re.compile(r"\d+[MID]")
+        df = (
+            df
+            .assign(
+                strand=lambda df: df["strand"].map({"+": "-", "-": "+"}),
+            )
+            .rename(
+                columns={
+                    "query_block_start": "query_block_start_old",
+                    "query_block_end": "query_block_end_old",
+                }
+            )
+            .assign(
+                query_block_start=lambda df: (
+                    read.query_length - df["query_block_end_old"]
+                ),
+                query_block_end=lambda df: (
+                    read.query_length - df["query_block_start_old"]
+                ),
+            )
+            .drop(columns=["query_block_start_old", "query_block_end_old"])
+            .assign(
+                align_string=lambda df: df["align_string"].map(
+                    lambda align_string: "".join(
+                        reversed(pattern.findall(align_string))
+                    )
+                )
+            )
+        )
+        df = df[::-1].reset_index(drop=True)
 
-    flip_blocks = []
-    for chrom, block_start, block_end, strand in reversed(blocks):
-        flip_blocks.append((
-            chrom,
-            block_start,
-            block_end,
-            "+" if strand == "-" else "-",
-        ))
+    ref_blocks = list(
+        zip(df["chrom"], df["block_start"], df["block_end"], df["strand"])
+    )
+    query_blocks = list(zip(df["query_block_start"], df["query_block_end"]))
+    align_strings = list(df["align_string"])
 
-    return flip_blocks
+    return ref_blocks, query_blocks, align_strings
 
 
 def filter_reads(bamfile: os.PathLike, chrom: str, start: int, end: int):
@@ -191,6 +271,9 @@ def filter_precursor_bam(cfg: dict, bam_file: os.PathLike, strand: str) -> None:
                     block_chrom,
                     block_start,
                     block_end,
+                    query_block_start,
+                    query_block_end,
+                    align_string,
                     block_strand,
                 ) in parse_block_without_flip(read):
                     cover_up = (df_se["pos"] + cfg["cover_threshold"]).between(
@@ -231,6 +314,9 @@ def filter_splice_bam(cfg: dict, bam_file: os.PathLike) -> None:
                     block_chrom,
                     block_start,
                     block_end,
+                    query_block_start,
+                    query_block_end,
+                    align_string,
                     block_strand,
                 ) in enumerate(parse_block_without_flip(read)):
                     if i > 0:
