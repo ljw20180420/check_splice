@@ -10,42 +10,105 @@ from Bio.Seq import Seq
 from .utils import get_treat, select_total_count
 
 
-def get_tas(ref_block: str, query_block: str, align_string: str):
-    pattern = re.compile(r"(\d+)([MID])")
-    ref = []
-    mid = []
-    query = []
-    ref_pos = 0
-    query_pos = 0
-    for length, op in pattern.findall(align_string):
-        length = int(length)
-        if op == "I":
-            ref.append("-" * length)
-            mid.append("*" * length)
-            query.append(query_block[query_pos : query_pos + length])
-            query_pos += length
-        elif op == "D":
-            ref.append(ref_block[ref_pos : ref_pos + length])
-            mid.append("*" * length)
-            query.append("-" * length)
-            ref_pos += length
-        else:
-            # op == "M"
-            ref.append(ref_block[ref_pos : ref_pos + length])
-            mid.append(
-                "".join([
-                    "|" if ref_block[ref_pos + i] == query_block[query_pos + i] else " "
-                    for i in range(length)
-                ])
-            )
-            query.append(query_block[query_pos : query_pos + length])
-            ref_pos += length
-            query_pos += length
+def get_query_from_exp_protein_treat_query_name(cfg: dict, assemble: str):
+    result_file = cfg["data_dir"] / "result" / f"{assemble}_reads.feather"
+    df = pd.read_feather(result_file).assign(
+        treat=lambda df: get_treat(df),
+        exp_protein_treat=lambda df: (
+            df["exp"] + "_" + df["protein"] + "_" + df["treat"]
+        ),
+    )
 
-    return "".join(ref), "".join(mid), "".join(query)
+    df = df.query("not is_shadow and blocks.str.contains(';')").reset_index(drop=True)[
+        [
+            "exp_protein_treat",
+            "query_name",
+            "is_read1",
+            "blocks",
+            "query_blocks",
+            "align_strings",
+        ]
+    ]
+
+    df["query"] = float("nan")
+    for exp_protein_treat in df["exp_protein_treat"].unique():
+        print(exp_protein_treat)
+        splice_bam = (
+            cfg["data_dir"] / "bam" / "merge" / "splice" / f"{exp_protein_treat}.bam"
+        )
+        with pysam.AlignmentFile(splice_bam, "rb") as bam:
+            bam_index = pysam.IndexedReads(bam)
+            bam_index.build()
+
+            df_slice = df.query("exp_protein_treat == @exp_protein_treat")
+            indices = []
+            queries = []
+            for index, query_name, is_read1 in zip(
+                df_slice.index, df_slice["query_name"], df_slice["is_read1"]
+            ):
+                find_flag = False
+                for read in bam_index.find(query_name):
+                    if read.is_unmapped:
+                        continue
+                    if read.is_secondary:
+                        continue
+                    if read.is_supplementary:
+                        continue
+                    if read.is_read1 != is_read1:
+                        continue
+
+                    find_flag = True
+                    indices.append(index)
+                    queries.append(read.get_forward_sequence())
+                    break
+
+                assert find_flag, "not find query name"
+
+        df["query"] = pd.Series(data=queries, index=indices).combine_first(df["query"])
+
+    df.to_csv(
+        cfg["data_dir"] / "result" / "hic" / "plotly" / f"{assemble}_ply.csv",
+        index=False,
+    )
 
 
 def get_plotly_interact(cfg: dict, assemble: str) -> None:
+    def get_tas(ref_block: str, query_block: str, align_string: str):
+        pattern = re.compile(r"(\d+)([MID])")
+        ref = []
+        mid = []
+        query = []
+        ref_pos = 0
+        query_pos = 0
+        for length, op in pattern.findall(align_string):
+            length = int(length)
+            if op == "I":
+                ref.append("-" * length)
+                mid.append("*" * length)
+                query.append(query_block[query_pos : query_pos + length])
+                query_pos += length
+            elif op == "D":
+                ref.append(ref_block[ref_pos : ref_pos + length])
+                mid.append("*" * length)
+                query.append("-" * length)
+                ref_pos += length
+            else:
+                # op == "M"
+                ref.append(ref_block[ref_pos : ref_pos + length])
+                mid.append(
+                    "".join([
+                        "|"
+                        if ref_block[ref_pos + i] == query_block[query_pos + i]
+                        else " "
+                        for i in range(length)
+                    ])
+                )
+                query.append(query_block[query_pos : query_pos + length])
+                ref_pos += length
+                query_pos += length
+
+        return "".join(ref), "".join(mid), "".join(query)
+
     def adjacent_block(row: str) -> list:
         blocks = row["blocks"].split(";")
         query_blocks = row["query_blocks"].split(";")
@@ -191,29 +254,12 @@ def get_plotly_interact(cfg: dict, assemble: str) -> None:
             index=["tas1", "tas2"],
         )
 
-    result_file = cfg["data_dir"] / "result" / f"{assemble}_reads.feather"
-    df = pd.read_feather(result_file).assign(
-        treat=lambda df: get_treat(df),
-        exp_protein_treat=lambda df: (
-            df["exp"] + "_" + df["protein"] + "_" + df["treat"]
-        ),
+    df = pd.read_csv(
+        cfg["data_dir"] / "result" / "hic" / "plotly" / f"{assemble}_ply.csv", header=0
     )
 
-    df = (
-        df
-        .query("not is_shadow and blocks.str.contains(';')")
-        .reset_index(drop=True)[
-            [
-                "exp_protein_treat",
-                "query_name",
-                "is_read1",
-                "blocks",
-                "query_blocks",
-                "align_strings",
-            ]
-        ]
-        .assign(interact=lambda df: df.apply(adjacent_block, axis=1))
-        .explode("interact", ignore_index=True)
+    df = df.assign(interact=lambda df: df.apply(adjacent_block, axis=1)).explode(
+        "interact", ignore_index=True
     )
 
     df = (
@@ -276,40 +322,6 @@ def get_plotly_interact(cfg: dict, assemble: str) -> None:
             ]
         ),
     )
-
-    df["query"] = float("nan")
-    for exp_protein_treat in df["exp_protein_treat"].unique():
-        print(exp_protein_treat)
-        splice_bam = (
-            cfg["data_dir"] / "bam" / "merge" / "splice" / f"{exp_protein_treat}.bam"
-        )
-        with pysam.AlignmentFile(splice_bam, "rb") as bam:
-            bam_index = pysam.IndexedReads(bam)
-            bam_index.build()
-
-            df_slice = df.query("exp_protein_treat == @exp_protein_treat")
-            indices = []
-            queries = []
-            for index, row in df_slice.iterrows():
-                find_flag = False
-                for read in bam_index.find(row["query_name"]):
-                    if read.is_unmapped:
-                        continue
-                    if read.is_secondary:
-                        continue
-                    if read.is_supplementary:
-                        continue
-                    if read.is_read1 != row["is_read1"]:
-                        continue
-
-                    find_flag = True
-                    indices.append(index)
-                    queries.append(read.get_forward_sequence())
-                    break
-
-                assert find_flag, "not find query name"
-
-        df["query"] = pd.Series(data=queries, index=indices).combine_first(df["query"])
 
     df = pd.concat(
         (
