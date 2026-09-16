@@ -47,7 +47,7 @@ def parse_cigar(start: int, cigarstring: str, strand: str, query_length: int):
 
     blocks.append((block_start, current_pos))
     query_blocks.append((query_block_start, query_current_pos))
-    align_strings.append("".join(align_string))
+    align_strings.append(align_string)
 
     if strand == "-":
         query_blocks = [

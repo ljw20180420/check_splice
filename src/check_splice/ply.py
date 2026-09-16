@@ -42,7 +42,7 @@ def get_tas(ref_block: str, query_block: str, align_string: str):
             ref_pos += length
             query_pos += length
 
-    return ref, mid, query
+    return "".join(ref), "".join(mid), "".join(query)
 
 
 def get_plotly_interact(cfg: dict, assemble: str) -> None:
