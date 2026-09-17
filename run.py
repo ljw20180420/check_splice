@@ -24,28 +24,40 @@
 # !star_map_all
 
 # %%
-from check_splice import config, utils
+from check_splice import common, config, utils
 
 cfg = config.pcdh()
-utils.get_total_count(cfg)
+utils.get_sample_bam(cfg).assign(
+    total_count=lambda df: [common.get_bam_read_count(file) for file in df["file"]]
+).to_csv(cfg["data_dir"] / "result" / "total_count.csv", index=False)
 
 # %%
-from check_splice import config, cpcdh
+from check_splice import common, config, cpcdh
 
 cfg = config.pcdh()
-cpcdh.prepare_gene_bed12(cfg)
+common.prepare_gene_bed12(
+    gtffile=cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.gtf",
+    outfile=cfg["data_dir"] / "result" / "hg19.12.bed",
+    addtional_filter=cpcdh.gene_bed12_hg19_cpcdh_filter,
+)
+common.prepare_gene_bed12(
+    gtffile=cfg["data_dir"] / "data" / "mm10.ncbiRefSeq.gtf",
+    outfile=cfg["data_dir"] / "result" / "mm10.12.bed",
+    addtional_filter=cpcdh.gene_bed12_mm10_cpcdh_filter,
+)
 
 # %%
-from check_splice import config, cpcdh
+from check_splice import common, config, cpcdh
 
 cfg = config.pcdh()
-cpcdh.get_cpcdh(cfg)
-
-# %%
-from check_splice import config, pcbs
-
-cfg = config.pcdh()
-pcbs.get_pCBS(cfg)
+common.get_cpcdh_exon(
+    gtffile=cfg["data_dir"] / "data" / "hg19.ncbiRefSeq.gtf", chrom="chr5"
+).to_csv(cfg["data_dir"] / "result" / "hg19_cpcdh.csv", index=False)
+cpcdh.fix_mm10_Pcdhgb8_CDS(
+    common.get_cpcdh_exon(
+        gtffile=cfg["data_dir"] / "data" / "mm10.ncbiRefSeq.gtf", chrom="chr18"
+    )
+).to_csv(cfg["data_dir"] / "result" / "mm10_cpcdh.csv", index=False)
 
 # %%
 import json
@@ -107,6 +119,13 @@ from check_splice import config, sam
 
 cfg = config.pcdh()
 sam.filter_bam_all(cfg)
+
+# %%
+from check_splice import config, ply
+
+cfg = config.pcdh()
+ply.get_query_from_exp_protein_treat_query_name(cfg, "hg19")
+ply.get_query_from_exp_protein_treat_query_name(cfg, "mm10")
 
 # %%
 from check_splice import config, ply

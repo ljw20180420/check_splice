@@ -12,42 +12,30 @@ import sh
 from pyarrow import ipc
 
 
-def get_total_count(cfg: dict) -> None:
+def get_sample_bam(cfg: dict) -> None:
     exps = []
     proteins = []
     clones = []
     reps = []
-    total_counts = []
+    files = []
     for bamfile in os.listdir(cfg["data_dir"] / "bam"):
         if not bamfile.endswith(".bam"):
             continue
 
         exp, protein, clone, rep = bamfile.removesuffix(".bam").split("_")
-        bamfile = cfg["data_dir"] / "bam" / bamfile
-        with pysam.AlignmentFile(os.fspath(bamfile)) as bam:
-            total_count = sum(
-                1
-                for read in bam
-                if not read.is_secondary
-                and read.is_mapped
-                and not read.is_supplementary
-            )
-
-        print(bamfile, total_count)
-
         exps.append(exp)
         proteins.append(protein)
         clones.append(clone)
         reps.append(rep)
-        total_counts.append(total_count)
+        files.append(os.fspath(cfg["data_dir"] / "bam" / bamfile))
 
-    pd.DataFrame({
+    return pd.DataFrame({
         "exp": exps,
         "protein": proteins,
         "clone": clones,
         "rep": reps,
-        "total_count": total_counts,
-    }).to_csv(cfg["data_dir"] / "result" / "total_count.csv", index=False)
+        "file": files,
+    })
 
 
 def select_total_count(cfg: dict, exp: str, protein: str, treat: str) -> int:

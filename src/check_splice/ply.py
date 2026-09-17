@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import py2bit
 import pysam
 from Bio.Seq import Seq
+from plotly.subplots import make_subplots
 
 from .utils import get_treat, select_total_count
 
@@ -266,7 +267,7 @@ def get_plotly_interact(cfg: dict, assemble: str) -> None:
         pd
         .concat(
             [
-                df[["exp_protein_treat", "query_name", "is_read1"]],
+                df[["exp_protein_treat", "query_name", "is_read1", "query"]],
                 df["interact"]
                 .str.split(":", expand=True)
                 .rename(
@@ -323,6 +324,7 @@ def get_plotly_interact(cfg: dict, assemble: str) -> None:
         ),
     )
 
+    breakpoint()
     df = pd.concat(
         (
             df,
@@ -428,7 +430,8 @@ def draw_interact(cfg: dict, assemble: str):
     for exp_protein_treat in df["exp_protein_treat"].unique():
         df_slice = df.query("exp_protein_treat == @exp_protein_treat").reset_index()
         max_radius = 0
-        fig = go.Figure()
+        fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.05)
+
         for ref_end1, ref_start2, info, motif1, motif2, RPM in zip(
             df_slice["ref_end1"],
             df_slice["ref_start2"],
@@ -454,6 +457,7 @@ def draw_interact(cfg: dict, assemble: str):
             max_radius = max(max_radius, radius)
 
             arc_name = f"{ref_end1}-{ref_start2}:{motif1}-{motif2}"
+            row = 1 if strand == "+" else 3
             fig.add_trace(
                 go.Scatter(
                     x=x_coords,
@@ -466,22 +470,67 @@ def draw_interact(cfg: dict, assemble: str):
                         "font": {
                             "family": "Courier New, monospace",
                             "size": 14,
-                        }
+                        },
+                        "bgcolor": "rgba(255, 255, 255, 0.0)",
                     },
                     line={
                         "color": "RoyalBlue",
                         "width": 0.5 + RPM,
                     },
-                )
+                    showlegend=False,
+                ),
+                row=row,
+                col=1,
+            )
+
+        df = (
+            pd
+            .read_csv(cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv", header=0)
+            .query("name.str.lower().str.startswith('pcdha')")
+            .reset_index(drop=True)
+        )
+
+        for chrom, start, end, name in zip(
+            df["chrom"], df["start"], df["end"], df["name"]
+        ):
+            fig.add_trace(
+                go.Bar(
+                    x=[end - start],  # Width of the rectangle
+                    y=[0],  # Vertical position (on the gene track line)
+                    base=start,  # Starting position on the X-axis
+                    orientation="h",  # Horizontal bar
+                    width=1,  # Thickness of the rectangle
+                    marker={
+                        "color": "RoyalBlue",
+                        "line": {
+                            "color": "black",
+                            "width": 1,
+                        },
+                    },
+                    # Define your custom hover text here!
+                    hovertemplate=f"{name}",
+                    hoverlabel={
+                        "font": {
+                            "family": "Courier New, monospace",
+                            "size": 14,
+                        },
+                        "bgcolor": "rgba(255, 255, 255, 0.0)",
+                    },
+                    showlegend=False,
+                ),
+                row=2,
+                col=1,
             )
 
         fig.update_layout(
             title=exp_protein_treat,
             xaxis={"range": [alpha_start, alpha_end]},
-            yaxis={"range": [-1.1 * max_radius, 1.1 * max_radius]},
-            yaxis_scaleanchor="x",
             hovermode="closest",
         )
+
+        fig.update_yaxes(range=[0, 1.1 * max_radius], row=1, col=1)
+        fig.update_yaxes(range=[-1, 1], row=2, col=1)
+        fig.update_yaxes(range=[-1.1 * max_radius, 0], row=3, col=1)
 
         fig.write_html(
             cfg["data_dir"]
