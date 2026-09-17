@@ -15,7 +15,6 @@ def pcdh():
             "INCREASE": "#FF0000",
             "DECREASE": "#0000FF",
         },
-        "flip": "R1",  # which reads to flip (R1 or R2)
         "hg19": {
             "chrom": "chr5",
             "length": 180915260,
@@ -63,5 +62,4 @@ def pcdh():
         "data_dir": Path("/home/ljw/sdc1/hush"),
         "cover_threshold": 6,
         "tss_extend": 30,
-        "exon_end_extend": 30,
     }

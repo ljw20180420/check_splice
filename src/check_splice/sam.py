@@ -1,186 +1,57 @@
 import os
-import re
+import pathlib
 
-import pandas as pd
 import pysam
 import sh
 
-from .utils import get_precursor_pos
+from .common import ParseSamRead, filter_bam_reads
+from .utils import clone2assemble, get_precursor_pos, get_sample_bam
 
 
-def parse_cigar(start: int, cigarstring: str, strand: str, query_length: int):
-    blocks = []
-    query_blocks = []
-    align_strings = []
-    current_pos = start
-    block_start = start
-    query_current_pos = 0
-    pattern = re.compile(r"(\d+)([MIDNSHP=XB])")
-    length_ops = [(int(length), op) for length, op in pattern.findall(cigarstring)]
-    if length_ops[0][1] == "S":
-        query_current_pos += length_ops[0][0]
-        length_ops = length_ops[1:]
-    query_block_start = query_current_pos
-    align_string = []
-    for length, op in length_ops:
-        if op in ("=", "X"):
-            op = "M"
-
-        if op in ("M", "I", "D"):
-            align_string.append(f"{length}{op}")
-            if op in ("M", "D"):
-                current_pos += length
-            if op in ("M", "I"):
-                query_current_pos += length
-
-        elif op == "N":  # Intron / Reference Skip (N)
-            # End the current block before the intron starts
-            blocks.append((block_start, current_pos))
-            query_blocks.append((query_block_start, query_current_pos))
-            align_strings.append(align_string)
-            # Skip past the intron region
-            current_pos += length
-            # Set the start of the next block to the end of the intron
-            block_start = current_pos
-            query_block_start = query_current_pos
-            align_string = []
-
-    blocks.append((block_start, current_pos))
-    query_blocks.append((query_block_start, query_current_pos))
-    align_strings.append(align_string)
-
-    if strand == "-":
-        query_blocks = [
-            (query_length - query_block_end, query_length - query_block_start)
-            for query_block_start, query_block_end in query_blocks
-        ]
-        align_strings = [
-            "".join(reversed(align_string)) for align_string in align_strings
-        ]
-    else:
-        align_strings = ["".join(align_string) for align_string in align_strings]
-
-    return blocks, query_blocks, align_strings
-
-
-def parse_sa(sa_tag: str):
-    for alignment_str in sa_tag.split(";"):
-        if not alignment_str:
-            continue
-
-        chrom, start, strand, cigar, _ = alignment_str.split(",")
-        start = int(start) - 1
-
-        yield chrom, start, strand, cigar
-
-
-def parse_block_without_flip(read: pysam.AlignedSegment):
-    chroms = [read.reference_name]
-    starts = [read.reference_start]
-    strands = ["+" if read.is_forward else "-"]
-    cigars = [read.cigarstring]
-    if read.has_tag("SA"):
-        for chrom, start, strand, cigar in parse_sa(read.get_tag("SA")):
-            chroms.append(chrom)
-            starts.append(start)
-            strands.append(strand)
-            cigars.append(cigar)
-
-    all_chroms = []
-    all_block_starts = []
-    all_block_ends = []
-    all_query_block_starts = []
-    all_query_block_ends = []
-    all_align_strings = []
-    all_strands = []
-    for chrom, start, strand, cigar in zip(chroms, starts, strands, cigars):
-        blocks, query_blocks, align_strings = parse_cigar(
-            start, cigar, strand, read.query_length
-        )
-        for (block_start, block_end), (
-            query_block_start,
-            query_block_end,
-        ), align_string in zip(blocks, query_blocks, align_strings):
-            all_chroms.append(chrom)
-            all_block_starts.append(block_start)
-            all_block_ends.append(block_end)
-            all_query_block_starts.append(query_block_start)
-            all_query_block_ends.append(query_block_end)
-            all_align_strings.append(align_string)
-            all_strands.append(strand)
-
-    return pd.DataFrame({
-        "chrom": all_chroms,
-        "block_start": all_block_starts,
-        "block_end": all_block_ends,
-        "query_block_start": all_query_block_starts,
-        "query_block_end": all_query_block_ends,
-        "align_string": all_align_strings,
-        "strand": all_strands,
-    }).sort_values(by=["query_block_start"], ignore_index=True)
-
-
-def parse_block_with_flip(
-    read: pysam.AlignedSegment, flip: str
-) -> tuple[list, list, list]:
-    df = parse_block_without_flip(read)
-    assert flip in ("R1", "R2"), "flip must be either 'R1' or 'R2'"
-    if flip == "R1" and read.is_read1 or flip == "R2" and read.is_read2:
-        pattern = re.compile(r"\d+[MID]")
-        df = (
-            df
-            .assign(
-                strand=lambda df: df["strand"].map({"+": "-", "-": "+"}),
-            )
-            .rename(
-                columns={
-                    "query_block_start": "query_block_start_old",
-                    "query_block_end": "query_block_end_old",
-                }
-            )
-            .assign(
-                query_block_start=lambda df: (
-                    read.query_length - df["query_block_end_old"]
-                ),
-                query_block_end=lambda df: (
-                    read.query_length - df["query_block_start_old"]
-                ),
-            )
-            .drop(columns=["query_block_start_old", "query_block_end_old"])
-            .assign(
-                align_string=lambda df: df["align_string"].map(
-                    lambda align_string: "".join(
-                        reversed(pattern.findall(align_string))
-                    )
-                )
-            )
-        )
-        df = df[::-1].reset_index(drop=True)
-
-    ref_blocks = list(
-        zip(df["chrom"], df["block_start"], df["block_end"], df["strand"])
-    )
-    query_blocks = list(zip(df["query_block_start"], df["query_block_end"]))
-    align_strings = list(df["align_string"])
-
-    return ref_blocks, query_blocks, align_strings
-
-
-def filter_reads(bamfile: os.PathLike, chrom: str, start: int, end: int):
-    with pysam.AlignmentFile(os.fspath(bamfile)) as fd:
-        for read in fd.fetch(
-            contig=chrom,
-            start=start,
-            end=end,
+def parse_strand_sensitive_bam(cfg: dict):
+    parse_sam_read = ParseSamRead()
+    yield "exp,protein,clone,rep,query_name,query,is_forward,is_read1,is_qcfail,is_duplicate,mapping_quality,ref_block_chrom,ref_block_start,ref_block_end,ref_block_strand,query_block_start,query_block_end,align_string"
+    for exp, protein, clone, rep, bamfile in get_sample_bam(cfg).itertuples(
+        index=False
+    ):
+        bamfile = pathlib.Path(bamfile)
+        assemble = clone2assemble(clone)
+        for read in filter_bam_reads(
+            bamfile,
+            cfg[assemble]["chrom"],
+            cfg[assemble]["start"],
+            cfg[assemble]["end"],
         ):
-            if read.is_secondary:
-                continue
-            if not read.is_mapped:
-                continue
-            if read.is_supplementary:
-                continue
+            for (
+                ref_block_chrom,
+                ref_block_start,
+                ref_block_end,
+                ref_block_strand,
+                query_block_start,
+                query_block_end,
+                align_string,
+            ) in parse_sam_read.parse_read(read):
+                if read.is_read1:
+                    (
+                        ref_block_chrom,
+                        ref_block_start,
+                        ref_block_end,
+                        ref_block_strand,
+                        query_block_start,
+                        query_block_end,
+                        align_string,
+                    ) = parse_sam_read.flip_read(
+                        ref_block_chrom,
+                        ref_block_start,
+                        ref_block_end,
+                        ref_block_strand,
+                        query_block_start,
+                        query_block_end,
+                        align_string,
+                        read.query_length,
+                    )
 
-            yield read
+                yield f"{exp},{protein},{clone},{rep},{read.query_name},{read.get_forward_sequence()}{read.is_forward},{read.is_read1},{read.is_qcfail},{read.is_duplicate},{read.mapping_quality},{ref_block_chrom},{ref_block_start},{ref_block_end},{ref_block_strand},{query_block_start},{query_block_end},{align_string}"
 
 
 def merge_bam(cfg: dict, assemble: str) -> None:
@@ -235,6 +106,7 @@ def merge_bam(cfg: dict, assemble: str) -> None:
 
 
 def filter_precursor_bam(cfg: dict, bam_file: os.PathLike, strand: str) -> None:
+    parse_sam_read = ParseSamRead()
     exp, protein, treat = bam_file.name.removesuffix(".bam").split("_")
     assemble = "hg19" if not treat.startswith("mm") else "mm10"
     df_se = get_precursor_pos(cfg, assemble)
@@ -268,19 +140,19 @@ def filter_precursor_bam(cfg: dict, bam_file: os.PathLike, strand: str) -> None:
                     continue
 
                 for (
-                    block_chrom,
-                    block_start,
-                    block_end,
+                    ref_block_chrom,
+                    ref_block_start,
+                    ref_block_end,
+                    ref_block_strand,
                     query_block_start,
                     query_block_end,
                     align_string,
-                    block_strand,
-                ) in parse_block_without_flip(read):
+                ) in parse_sam_read.parse_read(read):
                     cover_up = (df_se["pos"] + cfg["cover_threshold"]).between(
-                        block_start, block_end
+                        ref_block_start, ref_block_end
                     )
                     cover_down = (df_se["pos"] - cfg["cover_threshold"]).between(
-                        block_start, block_end
+                        ref_block_start, ref_block_end
                     )
 
                     if (cover_up & cover_down).any():
@@ -310,18 +182,8 @@ def filter_splice_bam(cfg: dict, bam_file: os.PathLike) -> None:
                 if read.is_supplementary:
                     continue
 
-                for i, (
-                    block_chrom,
-                    block_start,
-                    block_end,
-                    query_block_start,
-                    query_block_end,
-                    align_string,
-                    block_strand,
-                ) in enumerate(parse_block_without_flip(read)):
-                    if i > 0:
-                        outfile.write(read)
-                        break
+                if "N" in read.cigarstring or read.has_tag("SA"):
+                    outfile.write(read)
 
     samtools = sh.Command("samtools")
     samtools(

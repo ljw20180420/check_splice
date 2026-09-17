@@ -60,24 +60,15 @@ cpcdh.fix_mm10_Pcdhgb8_CDS(
 ).to_csv(cfg["data_dir"] / "result" / "mm10_cpcdh.csv", index=False)
 
 # %%
-import json
+import pandas as pd
 
-from check_splice import config, process_all
-
-cfg = config.pcdh()
-for assemble in ["hg19", "mm10"]:
-    with open(cfg["data_dir"] / "result" / f"{assemble}_reads.jsonl", "w") as fd:
-        fd.writelines((f"{json.dumps(info)}\n" for info in process_all(cfg, assemble)))
-
-# %%
-from check_splice import config, utils
+from check_splice import config, sam
 
 cfg = config.pcdh()
-for assemble in ["hg19", "mm10"]:
-    utils.jsonl2feather(
-        jsonl_file=cfg["data_dir"] / "result" / f"{assemble}_reads.jsonl",
-        feather_file=cfg["data_dir"] / "result" / f"{assemble}_reads.feather",
-    )
+with open(cfg["data_dir"] / "result" / "reads.csv", "w") as fd:
+    fd.writelines((f"{line}\n" for line in sam.parse_strand_sensitive_bam(cfg)))
+df = pd.read_csv(cfg["data_dir"] / "result" / "reads.csv", header=0)
+df.to_feather(cfg["data_dir"] / "result" / "reads.feather")
 
 # %%
 from check_splice import config, stat

@@ -12,7 +12,7 @@ import sh
 from pyarrow import ipc
 
 
-def get_sample_bam(cfg: dict) -> None:
+def get_sample_bam(cfg: dict) -> pd.DataFrame:
     exps = []
     proteins = []
     clones = []
@@ -38,6 +38,12 @@ def get_sample_bam(cfg: dict) -> None:
     })
 
 
+def clone2assemble(clone: str) -> str:
+    if clone.startswith("mm"):
+        return "mm10"
+    return "hg19"
+
+
 def select_total_count(cfg: dict, exp: str, protein: str, treat: str) -> int:
     df_total = pd.read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
     df_total = (
@@ -53,22 +59,6 @@ def select_total_count(cfg: dict, exp: str, protein: str, treat: str) -> int:
     )["total_count"].item()
 
     return total_count
-
-
-def jsonl2feather(jsonl_file: os.PathLike, feather_file: os.PathLike):
-    writer = None
-    # Stream JSON in chunks of 10,000 rows
-    for chunk in pd.read_json(jsonl_file, chunksize=100000, lines=True):
-        batch = pa.RecordBatch.from_pandas(chunk)
-        if writer is None:
-            writer = ipc.RecordBatchFileWriter(feather_file, batch.schema)
-        writer.write_batch(batch)
-
-    if writer is not None:
-        writer.close()
-
-    df = pd.read_feather(feather_file)
-    df.to_feather(feather_file)
 
 
 def pair_to_hic(

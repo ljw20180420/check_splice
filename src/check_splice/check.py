@@ -1,185 +1,52 @@
-import os
-
-import pandas as pd
-
-
-class Read:
-    def __init__(self) -> None:
-        pass
-
-    @classmethod
-    def seq_start(cls, blocks: list[tuple[str, int, int, str]]) -> int:
-        _, block_start, block_end, block_strand = blocks[0]
-        if block_strand == "+":
-            return block_start
-        else:
-            return block_end
-
-    @classmethod
-    def seq_end(cls, blocks: list[tuple[str, int, int, str]]) -> int:
-        _, block_start, block_end, block_strand = blocks[-1]
-        if block_strand == "+":
-            return block_end
-        else:
-            return block_start
-
-    @classmethod
-    def start(
-        cls, info: dict, blocks: list[tuple[str, int, int, str]], is_read1: bool
-    ) -> dict:
-        if is_read1:
-            info["read_start"] = cls.seq_start(blocks)
-        else:
-            info["read_start"] = cls.seq_end(blocks)
-
-        return info
-
-    @classmethod
-    def end(
-        cls, info: dict, blocks: list[tuple[str, int, int, str]], is_read1: bool
-    ) -> dict:
-        if is_read1:
-            info["read_end"] = cls.seq_end(blocks)
-        else:
-            info["read_end"] = cls.seq_start(blocks)
-
-        return info
+def cover(
+    blocks: list[tuple[str, int, int, str]],
+    chrom: str,
+    start: int,
+    end: int,
+    strand: str,
+) -> bool:
+    for block_chrom, block_start, block_end, block_strand in blocks:
+        if (
+            chrom == block_chrom
+            and strand == block_strand
+            and start >= block_start
+            and end <= block_end
+        ):
+            return True
+    return False
 
 
-class Interval:
-    def __init__(
-        self, chrom: str, start: int, end: int, strand: str, name: str
-    ) -> None:
-        self.chrom = chrom
-        self.start = start
-        self.end = end
-        self.strand = strand
-        self.name = name
-
-    def connect(self, blocks: list[tuple[str, int, int, str]]) -> bool:
-        for i in range(len(blocks) - 1):
-            block_chrom, block_start, block_end, block_strand = blocks[i]
-            next_block_chrom, next_block_start, next_block_end, next_block_strand = (
-                blocks[i + 1]
-            )
-            if (
-                self.chrom == block_chrom
-                and self.chrom == next_block_chrom
-                and self.strand == block_strand
-                and self.strand == next_block_strand
-            ):
-                if self.strand == "+":
-                    if self.start == block_end and self.end == next_block_start:
-                        return True
-                else:
-                    if self.start == next_block_end and self.end == block_start:
-                        return True
-        return False
-
-    def cover(self, blocks: list[tuple[str, int, int, str]]) -> bool:
-        for block_chrom, block_start, block_end, block_strand in blocks:
-            if (
-                self.chrom == block_chrom
-                and self.strand == block_strand
-                and self.start >= block_start
-                and self.end <= block_end
-            ):
-                return True
-        return False
-
-    def overlap(self, blocks: list[tuple[str, int, int, str]]) -> bool:
-        for block_chrom, block_start, block_end, block_strand in blocks:
-            if (
-                self.chrom == block_chrom
-                and self.strand == block_strand
-                and min(self.end, block_end) > max(self.start, block_start)
-            ):
-                return True
-        return False
-
-    def inrange_end(self, blocks: list[tuple[str, int, int, str]]) -> float:
-        if self.strand == "+":
-            extreme_inrange_block_end = float("-inf")
-            for block_chrom, block_start, block_end, block_strand in blocks:
-                if (
-                    self.chrom == block_chrom
-                    and self.strand == block_strand
-                    and block_end <= self.end
-                    and block_end >= self.start
-                ):
-                    extreme_inrange_block_end = max(
-                        extreme_inrange_block_end, block_end
-                    )
-            return extreme_inrange_block_end
-        else:
-            extreme_inrange_block_end = float("inf")
-            for block_chrom, block_start, block_end, block_strand in blocks:
-                if (
-                    self.chrom == block_chrom
-                    and self.strand == block_strand
-                    and block_start <= self.end
-                    and block_start >= self.start
-                ):
-                    extreme_inrange_block_end = min(
-                        extreme_inrange_block_end, block_start
-                    )
-            return extreme_inrange_block_end
+def connect(
+    blocks: list[tuple[str, int, int, str]],
+    chrom: str,
+    start: int,
+    end: int,
+    strand: str,
+) -> bool:
+    for i in range(len(blocks) - 1):
+        block_chrom, block_start, block_end, block_strand = blocks[i]
+        next_block_chrom, next_block_start, next_block_end, next_block_strand = blocks[
+            i + 1
+        ]
+        if (
+            chrom == block_chrom
+            and chrom == next_block_chrom
+            and strand == block_strand
+            and strand == next_block_strand
+        ):
+            if strand == "+":
+                if start == block_end and end == next_block_start:
+                    return True
+            else:
+                if start == next_block_end and end == block_start:
+                    return True
+    return False
 
 
-class Intervals:
-    def __init__(self, intervals: list[Interval]) -> None:
-        self.intervals = intervals
-
-    def __call__(
-        self, info: dict, blocks: list[tuple[str, int, int, str]], method: str
-    ) -> dict:
-        for interval in self.intervals:
-            func = getattr(interval, method)
-            info[f"{method}.{interval.name}"] = func(blocks)
-
-        return info
-
-
-def all_intervals(cpcdh_file: os.PathLike, cover_threshold: int, exon_end_extend: int):
-    df = pd.read_csv(cpcdh_file, header=0)
-    introns = Intervals([
-        Interval(chrom, start, end, strand, name)
-        for chrom, start, end, strand, name in df.query('type=="intron"')[
-            ["chrom", "start", "end", "strand", "name"]
-        ].itertuples(index=False)
-    ])
-    intron_starts = Intervals([
-        Interval(
-            chrom,
-            start - cover_threshold,
-            start + cover_threshold,
-            strand,
-            f"start.{name}",
-        )
-        for chrom, start, end, strand, name in df.query('type=="intron"')[
-            ["chrom", "start", "end", "strand", "name"]
-        ].itertuples(index=False)
-    ])
-    intron_ends = Intervals([
-        Interval(
-            chrom,
-            end - cover_threshold,
-            end + cover_threshold,
-            strand,
-            f"end.{name}",
-        )
-        for chrom, start, end, strand, name in df.query('type=="intron"')[
-            ["chrom", "start", "end", "strand", "name"]
-        ].itertuples(index=False)
-    ])
-
-    exon_ends = Intervals([
-        Interval(
-            chrom, end - exon_end_extend, end + exon_end_extend, strand, f"end.{name}"
-        )
-        for chrom, start, end, strand, name in df.query('type=="exon"')[
-            ["chrom", "start", "end", "strand", "name"]
-        ].itertuples(index=False)
-    ])
-
-    return introns, intron_starts, intron_ends, exon_ends
+def start(blocks: list[tuple[str, int, int, str]]) -> int:
+    chrom, block_start, block_end, strand = blocks[0]
+    if strand == "+":
+        return block_start
+    else:
+        # strand = "-"
+        return block_end

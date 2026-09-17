@@ -1,4 +1,5 @@
 import os
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -232,3 +233,163 @@ def get_cpcdh_intron(cpcdh_csv: os.PathLike) -> pd.DataFrame:
         .astype({"start": "int64", "end": "int64"})
         .sort_values(by=["start"], ignore_index=True)
     )
+
+
+def filter_bam_reads(bamfile: os.PathLike, chrom: str, start: int, end: int):
+    with pysam.AlignmentFile(os.fspath(bamfile)) as fd:
+        for read in fd.fetch(
+            contig=chrom,
+            start=start,
+            end=end,
+        ):
+            if read.is_secondary:
+                continue
+            if not read.is_mapped:
+                continue
+            if read.is_supplementary:
+                continue
+
+            yield read
+
+
+class ParseSamRead:
+    def __init__(self):
+        self.cigar_parser = re.compile(r"(\d+)([MIDNSHP=XB])")
+        self.align_sting_parser = re.compile(r"\d+[MID]")
+
+    def flip_to_query_raw_strand(
+        self,
+        query_block_start: int,
+        query_block_end: int,
+        align_string: list[str],
+        strand: str,
+        query_length: int,
+    ):
+        if strand == "+":
+            return (
+                query_block_start,
+                query_block_end,
+                "".join(align_string),
+            )
+        else:
+            # strand == "-"
+            return (
+                query_length - query_block_end,
+                query_length - query_block_start,
+                "".join(reversed(align_string)),
+            )
+
+    def parse_cigar(self, start: int, cigarstring: str, strand: str, query_length: int):
+        ref_current_pos = start
+        ref_block_start = start
+        query_current_pos = 0
+        length_ops = [
+            (int(length), op) for length, op in self.cigar_parser.findall(cigarstring)
+        ]
+        if length_ops[0][1] == "S":
+            query_current_pos += length_ops[0][0]
+            length_ops = length_ops[1:]
+        query_block_start = query_current_pos
+
+        align_string = []
+        for length, op in length_ops:
+            if op in ("=", "X"):
+                op = "M"
+
+            if op in ("M", "I", "D"):
+                align_string.append(f"{length}{op}")
+                if op in ("M", "D"):
+                    ref_current_pos += length
+                if op in ("M", "I"):
+                    query_current_pos += length
+
+            elif op == "N":
+                yield (
+                    ref_block_start,
+                    ref_current_pos,
+                    *self.flip_to_query_raw_strand(
+                        query_block_start,
+                        query_current_pos,
+                        align_string,
+                        strand,
+                        query_length,
+                    ),
+                )
+
+                ref_current_pos += length
+                ref_block_start = ref_current_pos
+                query_block_start = query_current_pos
+                align_string = []
+
+        yield (
+            ref_block_start,
+            ref_current_pos,
+            *self.flip_to_query_raw_strand(
+                query_block_start,
+                query_current_pos,
+                align_string,
+                strand,
+                query_length,
+            ),
+        )
+
+    def parse_sa(self, sa_tag: str):
+        for alignment_str in sa_tag.split(";"):
+            if not alignment_str:
+                continue
+
+            chrom, start, strand, cigar, _ = alignment_str.split(",")
+            start = int(start) - 1
+
+            yield chrom, start, strand, cigar
+
+    def parse_read(self, read: pysam.AlignedSegment):
+        chroms = [read.reference_name]
+        starts = [read.reference_start]
+        strands = ["+" if read.is_forward else "-"]
+        cigars = [read.cigarstring]
+        if read.has_tag("SA"):
+            for chrom, start, strand, cigar in self.parse_sa(read.get_tag("SA")):
+                chroms.append(chrom)
+                starts.append(start)
+                strands.append(strand)
+                cigars.append(cigar)
+
+        for chrom, start, strand, cigar in zip(chroms, starts, strands, cigars):
+            for (
+                ref_block_start,
+                ref_block_end,
+                query_block_start,
+                query_block_end,
+                align_string,
+            ) in self.parse_cigar(start, cigar, strand, read.query_length):
+                yield (
+                    chrom,
+                    ref_block_start,
+                    ref_block_end,
+                    strand,
+                    query_block_start,
+                    query_block_end,
+                    align_string,
+                )
+
+    def flip_read(
+        self,
+        ref_block_chrom: str,
+        ref_block_start: int,
+        ref_block_end: int,
+        ref_block_strand: str,
+        query_block_start: int,
+        query_block_end: int,
+        align_string: str,
+        query_length: int,
+    ):
+        return (
+            ref_block_chrom,
+            ref_block_start,
+            ref_block_end,
+            "+" if ref_block_strand == "-" else "-",
+            query_length - query_block_end,
+            query_length - query_block_start,
+            "".join(reversed(self.align_sting_parser.findall(align_string))),
+        )
