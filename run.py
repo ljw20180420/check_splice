@@ -145,10 +145,10 @@ cfg = config.pcdh()
 interact.pairs_to_bedpe(cfg)
 
 # %%
-from check_splice import cb, config
+from check_splice import config, interact
 
 cfg = config.pcdh()
-cb.diff_bedpe_all(cfg)
+interact.diff_bedpe(cfg)
 
 # %%
 from check_splice import cb, config

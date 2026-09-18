@@ -99,3 +99,10 @@ class SelectTotalCount:
         return self.df_total.query(
             "exp == @exp and protein == @protein and treat == @treat"
         )["total_count"].item()
+
+
+def map_to_wild_type_merge(exp: str, protein: str, treat: str) -> tuple[str, str, str]:
+    wt_protein = "WT" if exp == "clip" else protein
+    wt_treat = "mmcontrol" if treat.startswith("mm") else "control"
+
+    return exp, wt_protein, wt_treat
