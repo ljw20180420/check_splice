@@ -74,6 +74,12 @@ def treat2assemble(treat: str) -> str:
     return "hg19"
 
 
+def treat2diff(treat: str) -> str:
+    if treat.startswith("mm"):
+        return "mmdiff"
+    return "diff"
+
+
 def blocks_string2tuple(blocks: str):
     for block in blocks.split(";"):
         chrom, start, end, strand = block.split(":")

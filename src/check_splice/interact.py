@@ -4,12 +4,14 @@ import shutil
 import pandas as pd
 import py2bit
 
+from .common import substract_bedpe
 from .utils import (
     SelectTotalCount,
     clone2treat,
     get_merge_bam,
     map_to_wild_type_merge,
     treat2assemble,
+    treat2diff,
 )
 
 
@@ -313,6 +315,7 @@ def diff_bedpe(cfg: dict) -> None:
     for exp, protein, treat in zip(
         df_merge["exp"], df_merge["protein"], df_merge["treat"]
     ):
+        diff = treat2diff(treat)
         for orientation in ["f", "r"]:
             treat_file = (
                 cfg["data_dir"]
@@ -361,38 +364,8 @@ def diff_bedpe(cfg: dict) -> None:
                     "strand2",
                 ],
             )
-            df = df_treat.merge(
-                df_control,
-                on=[
-                    "chrom1",
-                    "start1",
-                    "end1",
-                    "chrom2",
-                    "start2",
-                    "end2",
-                    "strand1",
-                    "strand2",
-                ],
-                how="outer",
-            )
 
-            df = df.assign(
-                name=lambda df: df["name_x"].fillna("") + "-" + df["name_y"].fillna(""),
-                score=lambda df: df["score_x"].fillna(0) - df["score_y"].fillna(0),
-            )[
-                [
-                    "chrom1",
-                    "start1",
-                    "end1",
-                    "chrom2",
-                    "start2",
-                    "end2",
-                    "name",
-                    "score",
-                    "strand1",
-                    "strand2",
-                ]
-            ]
+            df = substract_bedpe(df_treat, df_control)
 
             for filter, direction in [("score > 0", "up"), ("score < 0", "down")]:
                 df.query(filter).assign(score=lambda df: df["score"].abs()).to_csv(
@@ -401,7 +374,7 @@ def diff_bedpe(cfg: dict) -> None:
                         / "result"
                         / "hic"
                         / "bedpe"
-                        / f"{exp}_{protein}_diff.{direction}.{orientation}.bedpe"
+                        / f"{exp}_{protein}_{diff}.{direction}.{orientation}.bedpe"
                     ),
                     sep="\t",
                     index=False,

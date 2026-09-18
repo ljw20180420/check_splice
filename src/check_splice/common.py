@@ -476,3 +476,87 @@ def merge_adjacent_intervals_with_identical_values(
     values = values[np.concatenate(([0], change_indices))]
 
     return starts, ends, values
+
+
+def substract_bedpe(df1: pd.DataFrame, df2: pd.DataFrame) -> pd.DataFrame:
+    df = df1.merge(
+        df2,
+        on=[
+            "chrom1",
+            "start1",
+            "end1",
+            "chrom2",
+            "start2",
+            "end2",
+            "strand1",
+            "strand2",
+        ],
+        how="outer",
+    )
+
+    df = df.assign(
+        name=lambda df: df["name_x"].fillna("") + "-" + df["name_y"].fillna(""),
+        score=lambda df: df["score_x"].fillna(0) - df["score_y"].fillna(0),
+    )[
+        [
+            "chrom1",
+            "start1",
+            "end1",
+            "chrom2",
+            "start2",
+            "end2",
+            "name",
+            "score",
+            "strand1",
+            "strand2",
+        ]
+    ]
+
+    return df
+
+
+def summation_bedpe(dfs: list[pd.DataFrame], total_counts: list[int]) -> pd.DataFrame:
+    dfs = [
+        df.assign(score=lambda df, total_count=total_count: df["score"] * total_count)
+        for df, total_count in zip(dfs, total_counts)
+    ]
+
+    df_sum = dfs[0]
+    for df in dfs[1:]:
+        df_sum = df_sum.merge(
+            df,
+            on=[
+                "chrom1",
+                "start1",
+                "end1",
+                "chrom2",
+                "start2",
+                "end2",
+                "strand1",
+                "strand2",
+            ],
+            how="outer",
+        )
+
+        df_sum = df_sum.assign(
+            name=lambda df: df["name_x"].fillna("") + ":" + df["name_y"].fillna(""),
+            score=lambda df: df["score_x"].fillna(0) + df["score_y"].fillna(0),
+        )
+        df_sum = df_sum.assign(
+            name=lambda df: df["name"].str.strip(":"),
+        )[
+            [
+                "chrom1",
+                "start1",
+                "end1",
+                "chrom2",
+                "start2",
+                "end2",
+                "name",
+                "score",
+                "strand1",
+                "strand2",
+            ]
+        ]
+
+    return df_sum.assign(score=lambda df: df["score"] / sum(total_counts))

@@ -6,12 +6,12 @@ import oxbow as ox
 import pandas as pd
 import pyBigWig
 import pypdf
-import pysam
 from coolbox.api import *
 from dna_features_viewer import GraphicFeature, GraphicRecord
 from dna_features_viewer.compute_features_levels import compute_features_levels
 
 from .common import get_cpcdh_intron, merge_adjacent_intervals_with_identical_values
+from .utils import get_merge_bam, map_to_wild_type_merge, treat2assemble, treat2diff
 
 
 def construct_artifact_bw(cfg: dict, assemble: str) -> None:
@@ -20,156 +20,130 @@ def construct_artifact_bw(cfg: dict, assemble: str) -> None:
         .read_csv(cfg["data_dir"] / "result" / f"{assemble}_splice.csv", header=0)
         .query("name.str.lower().str.startswith('pcdha')")
         .reset_index(drop=True)
+        .assign(**{
+            "splice %": lambda df: df["splice"] / (df["splice"] + df["precursor"]) * 100
+        })
     )
-    for exp in ["total", "rna", "pro", "clip"]:
-        for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
-            for wt in [True, False]:
-                if wt:
-                    treat = "control"
-                else:
-                    if exp != "clip":
-                        treat = "delta"
-                    else:
-                        treat = "tag"
 
-                if assemble == "mm10":
-                    treat = f"mm{treat}"
+    for exp, protein, treat, bamfile in get_merge_bam(cfg).itertuples(index=False):
+        df_splice_slice = df_splice.query(
+            "exp == @exp and protein == @protein and treat == @treat"
+        ).reset_index(drop=True)
 
-                df_splice_slice = df_splice.query(
-                    "exp == @exp and protein == @protein and treat == @treat"
-                ).assign(**{
-                    "splice %": lambda df: (
-                        df["connect"] / (df["connect"] + df["cover.start"]) * 100
-                    )
-                })
+        if len(df_splice_slice) == 0:
+            continue
 
-                if len(df_splice_slice) == 0:
-                    continue
+        (cfg["data_dir"] / "result" / "bw").mkdir(exist_ok=True, parents=True)
+        bw_file = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
 
-                (cfg["data_dir"] / "result" / "bw").mkdir(exist_ok=True, parents=True)
-                bw_file = (
-                    cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
-                )
+        df_pv = (
+            df_splice_slice[["start", "splice %"]]
+            .assign(
+                end=lambda df: df["start"] + 1,
+                value=lambda df: df["splice %"].fillna(0.0),
+            )[["start", "end", "value"]]
+            .sort_values(by=["start"], ignore_index=True)
+        )
 
-                df_pv = (
-                    pd
-                    .DataFrame({
-                        "start": df_splice_slice["start"].to_list(),
-                        "value": df_splice_slice["splice %"].fillna(0.0).to_list(),
-                    })
-                    .assign(
-                        end=lambda df: df["start"] + 1,
-                    )[["start", "end", "value"]]
-                    .sort_values(by=["start"], ignore_index=True)
-                )
-
-                df_pv = (
-                    pd
-                    .concat(
-                        [
-                            pd.DataFrame({
-                                "start": [
-                                    cfg[assemble]["start"],
-                                    df_pv["end"].to_list()[-1],
-                                ],
-                                "end": [
-                                    df_pv["start"].to_list()[0],
-                                    cfg[assemble]["end"],
-                                ],
-                                "value": 0.0,
-                            }),
-                            df_pv,
-                            pd.DataFrame({
-                                "start": df_pv["end"].to_list()[:-1],
-                                "end": df_pv["start"].to_list()[1:],
-                                "value": 0.0,
-                            }),
+        df_pv = (
+            pd
+            .concat(
+                [
+                    pd.DataFrame({
+                        "start": [
+                            cfg[assemble]["start"],
+                            df_pv["end"].to_list()[-1],
                         ],
-                        axis=0,
-                    )
-                    .assign(chrom=cfg[assemble]["chrom"])
-                    .sort_values(by=["chrom", "start"], ignore_index=True)
-                )
-
-                with pyBigWig.open(os.fspath(bw_file), "w") as bw:
-                    bw.addHeader([(cfg[assemble]["chrom"], cfg[assemble]["length"])])
-                    bw.addEntries(
-                        df_pv["chrom"].to_list(),
-                        df_pv["start"].to_list(),
-                        ends=df_pv["end"].to_list(),
-                        values=df_pv["value"].to_list(),
-                    )
-
-
-def construct_diff_bw(cfg: dict, assemble: str) -> None:
-    assert assemble in ["hg19", "mm10"], "unknown assemble"
-    control = "control" if assemble == "hg19" else "mmcontrol"
-    chrom = cfg[assemble]["chrom"]
-    start = cfg[assemble]["start"]
-    end = cfg[assemble]["end"]
-    for exp in ["total", "rna", "pro", "clip"]:
-        for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
-            if exp != "clip":
-                control_bw = (
-                    cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{control}.bw"
-                )
-            else:
-                control_bw = (
-                    cfg["data_dir"] / "result" / "bw" / f"{exp}_WT_{control}.bw"
-                )
-
-            treat = "delta" if exp != "clip" else "tag"
-            if assemble == "mm10":
-                treat = f"mm{treat}"
-
-            treat_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
-
-            if not control_bw.exists() or not treat_bw.exists():
-                continue
-
-            diff = "diff" if assemble == "hg19" else "mmdiff"
-            diff_up_bw = (
-                cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{diff}.up.bw"
+                        "end": [
+                            df_pv["start"].to_list()[0],
+                            cfg[assemble]["end"],
+                        ],
+                        "value": 0.0,
+                    }),
+                    df_pv,
+                    pd.DataFrame({
+                        "start": df_pv["end"].to_list()[:-1],
+                        "end": df_pv["start"].to_list()[1:],
+                        "value": 0.0,
+                    }),
+                ],
+                axis=0,
             )
-            diff_down_bw = (
-                cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{diff}.down.bw"
+            .assign(chrom=cfg[assemble]["chrom"])
+            .sort_values(by=["start"], ignore_index=True)
+        )
+
+        with pyBigWig.open(os.fspath(bw_file), "w") as bw:
+            bw.addHeader([(cfg[assemble]["chrom"], cfg[assemble]["length"])])
+            bw.addEntries(
+                df_pv["chrom"].to_list(),
+                df_pv["start"].to_list(),
+                ends=df_pv["end"].to_list(),
+                values=df_pv["value"].to_list(),
             )
 
-            with (
-                pyBigWig.open(os.fspath(control_bw)) as cb,
-                pyBigWig.open(os.fspath(treat_bw)) as tb,
-                pyBigWig.open(os.fspath(diff_up_bw), "w") as dub,
-                pyBigWig.open(os.fspath(diff_down_bw), "w") as ddb,
-            ):
-                control_values = cb.values(chrom, start, end, numpy=True)
-                treat_values = tb.values(chrom, start, end, numpy=True)
-                diff_values = np.nan_to_num(treat_values) - np.nan_to_num(
-                    control_values
-                )
 
-                starts, ends, diff_values = (
-                    merge_adjacent_intervals_with_identical_values(
-                        starts=np.arange(start, end),
-                        ends=np.arange(start + 1, end + 1),
-                        values=diff_values,
-                    )
-                )
+def construct_diff_bw(cfg: dict) -> None:
+    df_merge = (
+        get_merge_bam(cfg).query("treat.str.endswith('treat')").reset_index(drop=True)
+    )
 
-                dub.addHeader([(cfg[assemble]["chrom"], cfg[assemble]["length"])])
-                dub.addEntries(
-                    [cfg[assemble]["chrom"]] * len(starts),
-                    starts,
-                    ends=ends,
-                    values=np.maximum(diff_values, 0.0),
-                )
+    for exp, protein, treat in zip(
+        df_merge["exp"], df_merge["protein"], df_merge["treat"]
+    ):
+        assemble = treat2assemble(treat)
+        chrom = cfg[assemble]["chrom"]
+        start = cfg[assemble]["start"]
+        end = cfg[assemble]["end"]
+        chrom_size = cfg[assemble]["length"]
 
-                ddb.addHeader([(cfg[assemble]["chrom"], cfg[assemble]["length"])])
-                ddb.addEntries(
-                    [cfg[assemble]["chrom"]] * len(starts),
-                    starts,
-                    ends=ends,
-                    values=-np.minimum(diff_values, 0.0),
-                )
+        treat_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
+        control_bw = (
+            cfg["data_dir"]
+            / "result"
+            / "bw"
+            / f"{'_'.join(map_to_wild_type_merge(exp, protein, treat))}.bw"
+        )
+        if not control_bw.exists() or not treat_bw.exists():
+            continue
+
+        diff = treat2diff(treat)
+        diff_up_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{diff}.up.bw"
+        diff_down_bw = (
+            cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{diff}.down.bw"
+        )
+
+    with (
+        pyBigWig.open(os.fspath(control_bw)) as cb,
+        pyBigWig.open(os.fspath(treat_bw)) as tb,
+        pyBigWig.open(os.fspath(diff_up_bw), "w") as dub,
+        pyBigWig.open(os.fspath(diff_down_bw), "w") as ddb,
+    ):
+        control_values = cb.values(chrom, start, end, numpy=True)
+        treat_values = tb.values(chrom, start, end, numpy=True)
+        diff_values = np.nan_to_num(treat_values) - np.nan_to_num(control_values)
+
+        starts, ends, diff_values = merge_adjacent_intervals_with_identical_values(
+            starts=np.arange(start, end),
+            ends=np.arange(start + 1, end + 1),
+            values=diff_values,
+        )
+
+        dub.addHeader([(chrom, chrom_size)])
+        dub.addEntries(
+            [chrom] * len(starts),
+            starts,
+            ends=ends,
+            values=np.maximum(diff_values, 0.0),
+        )
+
+        ddb.addHeader([(chrom, chrom_size)])
+        ddb.addEntries(
+            [chrom] * len(starts),
+            starts,
+            ends=ends,
+            values=-np.minimum(diff_values, 0.0),
+        )
 
 
 def draw_links(

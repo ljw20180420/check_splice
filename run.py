@@ -167,8 +167,7 @@ cb.construct_artifact_bw(cfg, "mm10")
 from check_splice import cb, config
 
 cfg = config.pcdh()
-cb.construct_diff_bw(cfg, "hg19")
-cb.construct_diff_bw(cfg, "mm10")
+cb.construct_diff_bw(cfg)
 
 # %%
 from check_splice import cb, config
