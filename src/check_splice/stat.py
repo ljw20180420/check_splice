@@ -32,7 +32,7 @@ matplotlib.use("agg")
 
 
 def splice(cfg: dict, assemble: str) -> None:
-    df_intro = get_cpcdh_intron(
+    df_intron = get_cpcdh_intron(
         cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv"
     ).query("name.str.lower().str.startswith('pcdha')")
 
@@ -53,7 +53,10 @@ def splice(cfg: dict, assemble: str) -> None:
                 )
             )
             for chrom, start, end, name in zip(
-                df_intro["chrom"], df_intro["start"], df_intro["end"], df_intro["name"]
+                df_intron["chrom"],
+                df_intron["start"],
+                df_intron["end"],
+                df_intron["name"],
             )
         })
         .assign(**{
@@ -67,7 +70,7 @@ def splice(cfg: dict, assemble: str) -> None:
                 )
             )
             for chrom, start, name in zip(
-                df_intro["chrom"], df_intro["start"], df_intro["name"]
+                df_intron["chrom"], df_intron["start"], df_intron["name"]
             )
         })
     )
@@ -77,7 +80,7 @@ def splice(cfg: dict, assemble: str) -> None:
         .groupby(by=["exp", "protein", "clone", "rep", "query_name"], as_index=False)
         .agg(**{
             f"{opt}.{name}": pd.NamedAgg(column=f"{opt}.{name}", aggfunc="any")
-            for name in df_intro["name"]
+            for name in df_intron["name"]
             for opt in ["splice", "precursor"]
         })
         .copy()
@@ -90,7 +93,7 @@ def splice(cfg: dict, assemble: str) -> None:
         .groupby(["exp", "protein", "treat"], as_index=False)
         .agg(**{
             f"{opt}.{name}": pd.NamedAgg(column=f"{opt}.{name}", aggfunc="sum")
-            for name in df_intro["name"]
+            for name in df_intron["name"]
             for opt in ["splice", "precursor"]
         })
         .copy()
@@ -108,7 +111,7 @@ def splice(cfg: dict, assemble: str) -> None:
             id_vars=["exp", "protein", "treat", "total_count"],
             value_vars=[
                 f"{opt}.{name}"
-                for name in df_intro["name"]
+                for name in df_intron["name"]
                 for opt in ["splice", "precursor"]
             ],
             var_name="opt_intron",
@@ -130,7 +133,7 @@ def splice(cfg: dict, assemble: str) -> None:
         pd
         .merge(
             df,
-            df_intro[["chrom", "start", "end", "name"]],
+            df_intron[["chrom", "start", "end", "name"]],
             how="left",
             left_on="intron",
             right_on="name",

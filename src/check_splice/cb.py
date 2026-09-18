@@ -10,7 +10,12 @@ from coolbox.api import *
 from dna_features_viewer import GraphicFeature, GraphicRecord
 from dna_features_viewer.compute_features_levels import compute_features_levels
 
-from .common import get_cpcdh_intron, merge_adjacent_intervals_with_identical_values
+from .common import (
+    get_cpcdh_intron,
+    merge_adjacent_intervals_with_identical_values,
+    substract_bigwig,
+    write_bigwig,
+)
 from .utils import get_merge_bam, map_to_wild_type_merge, treat2assemble, treat2diff
 
 
@@ -113,36 +118,15 @@ def construct_diff_bw(cfg: dict) -> None:
             cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{diff}.down.bw"
         )
 
-    with (
-        pyBigWig.open(os.fspath(control_bw)) as cb,
-        pyBigWig.open(os.fspath(treat_bw)) as tb,
-        pyBigWig.open(os.fspath(diff_up_bw), "w") as dub,
-        pyBigWig.open(os.fspath(diff_down_bw), "w") as ddb,
-    ):
-        control_values = cb.values(chrom, start, end, numpy=True)
-        treat_values = tb.values(chrom, start, end, numpy=True)
-        diff_values = np.nan_to_num(treat_values) - np.nan_to_num(control_values)
-
-        starts, ends, diff_values = merge_adjacent_intervals_with_identical_values(
-            starts=np.arange(start, end),
-            ends=np.arange(start + 1, end + 1),
-            values=diff_values,
+        starts, ends, diff_values = substract_bigwig(
+            treat_bw, control_bw, chrom, start, end
         )
 
-        dub.addHeader([(chrom, chrom_size)])
-        dub.addEntries(
-            [chrom] * len(starts),
-            starts,
-            ends=ends,
-            values=np.maximum(diff_values, 0.0),
+        write_bigwig(
+            chrom, chrom_size, starts, ends, np.maximum(diff_values, 0.0), diff_up_bw
         )
-
-        ddb.addHeader([(chrom, chrom_size)])
-        ddb.addEntries(
-            [chrom] * len(starts),
-            starts,
-            ends=ends,
-            values=-np.minimum(diff_values, 0.0),
+        write_bigwig(
+            chrom, chrom_size, starts, ends, -np.minimum(diff_values, 0.0), diff_down_bw
         )
 
 

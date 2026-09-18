@@ -4,7 +4,7 @@ import shutil
 import pandas as pd
 import py2bit
 
-from .common import substract_bedpe, summation_bedpe
+from .common import get_cpcdh_intron, substract_bedpe, summation_bedpe
 from .utils import (
     SelectTotalCount,
     clone2treat,
@@ -332,40 +332,7 @@ def diff_bedpe(cfg: dict) -> None:
                 / f"{'_'.join(map_to_wild_type_merge(exp, protein, treat))}.{orientation}.bedpe"
             )
 
-            df_treat = pd.read_csv(
-                treat_file,
-                sep="\t",
-                names=[
-                    "chrom1",
-                    "start1",
-                    "end1",
-                    "chrom2",
-                    "start2",
-                    "end2",
-                    "name",
-                    "score",
-                    "strand1",
-                    "strand2",
-                ],
-            )
-            df_control = pd.read_csv(
-                control_file,
-                sep="\t",
-                names=[
-                    "chrom1",
-                    "start1",
-                    "end1",
-                    "chrom2",
-                    "start2",
-                    "end2",
-                    "name",
-                    "score",
-                    "strand1",
-                    "strand2",
-                ],
-            )
-
-            df = substract_bedpe(df_treat, df_control)
+            df = substract_bedpe(treat_file, control_file)
 
             for filter, direction in [("score > 0", "up"), ("score < 0", "down")]:
                 df.query(filter).assign(score=lambda df: df["score"].abs()).to_csv(
@@ -405,22 +372,7 @@ def sum_bedpe(cfg: dict) -> None:
             ]
             df_sum = summation_bedpe(
                 [
-                    pd.read_csv(
-                        cfg["data_dir"] / "result" / "hic" / "bedpe" / bedpe_file,
-                        sep="\t",
-                        names=[
-                            "chrom1",
-                            "start1",
-                            "end1",
-                            "chrom2",
-                            "start2",
-                            "end2",
-                            "name",
-                            "score",
-                            "strand1",
-                            "strand2",
-                        ],
-                    )
+                    cfg["data_dir"] / "result" / "hic" / "bedpe" / bedpe_file
                     for bedpe_file in bedpe_files
                 ],
                 total_counts,
@@ -432,6 +384,87 @@ def sum_bedpe(cfg: dict) -> None:
                 / "hic"
                 / "bedpe"
                 / "sum"
+                / f"{treat}.{orientation}.bedpe",
+                sep="\t",
+                index=False,
+                header=False,
+            )
+
+
+def filter_non_cpcdh_junction(cfg: dict) -> None:
+    (cfg["data_dir"] / "result" / "hic" / "bedpe" / "sum" / "cpcdh").mkdir(
+        exist_ok=True, parents=True
+    )
+    df_merge = get_merge_bam(cfg)
+    for treat in df_merge["treat"].unique():
+        assemble = treat2assemble(treat)
+        df_intron = get_cpcdh_intron(
+            cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv"
+        )
+        for orientation in ["f", "r"]:
+            df = pd.read_csv(
+                cfg["data_dir"]
+                / "result"
+                / "hic"
+                / "bedpe"
+                / "sum"
+                / f"{treat}.{orientation}.bedpe",
+                sep="\t",
+                names=[
+                    "chrom1",
+                    "start1",
+                    "end1",
+                    "chrom2",
+                    "start2",
+                    "end2",
+                    "name",
+                    "score",
+                    "strand1",
+                    "strand2",
+                ],
+            )
+
+            df = (
+                df
+                .assign(**{
+                    name: lambda df, start=start, end=end: (
+                        (df["start1"] == start) & (df["start2"] == end)
+                    )
+                    for start, end, name in zip(
+                        df_intron["start"],
+                        df_intron["end"],
+                        df_intron["name"],
+                    )
+                })
+                .assign(
+                    cpcdh=lambda df, df_intron=df_intron: df[
+                        df_intron["name"].tolist()
+                    ].any(axis=1)
+                )
+                .query("cpcdh")
+                .reset_index(drop=True)[
+                    [
+                        "chrom1",
+                        "start1",
+                        "end1",
+                        "chrom2",
+                        "start2",
+                        "end2",
+                        "name",
+                        "score",
+                        "strand1",
+                        "strand2",
+                    ]
+                ]
+            )
+
+            df.to_csv(
+                cfg["data_dir"]
+                / "result"
+                / "hic"
+                / "bedpe"
+                / "sum"
+                / "cpcdh"
                 / f"{treat}.{orientation}.bedpe",
                 sep="\t",
                 index=False,

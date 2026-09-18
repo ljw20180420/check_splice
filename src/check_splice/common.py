@@ -478,7 +478,72 @@ def merge_adjacent_intervals_with_identical_values(
     return starts, ends, values
 
 
-def substract_bedpe(df1: pd.DataFrame, df2: pd.DataFrame) -> pd.DataFrame:
+def substract_bigwig(
+    bigwig_file1: os.PathLike,
+    bigwig_file2: os.PathLike,
+    chrom: str,
+    start: int,
+    end: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    with (
+        pyBigWig.open(os.fspath(bigwig_file1)) as bw1,
+        pyBigWig.open(os.fspath(bigwig_file2)) as bw2,
+    ):
+        bw1_values = bw1.values(chrom, start, end, numpy=True)
+        bw2_values = bw2.values(chrom, start, end, numpy=True)
+        diff_values = np.nan_to_num(bw1_values) - np.nan_to_num(bw2_values)
+
+        starts, ends, diff_values = merge_adjacent_intervals_with_identical_values(
+            starts=np.arange(start, end),
+            ends=np.arange(start + 1, end + 1),
+            values=diff_values,
+        )
+
+    return starts, ends, diff_values
+
+
+def write_bigwig(
+    chrom: str,
+    chrom_size: int,
+    starts: np.ndarray,
+    ends: np.ndarray,
+    values: np.ndarray,
+    bigwig_file: os.PathLike,
+):
+    assert values.min() >= 0, "negative value detected"
+    with pyBigWig.open(os.fspath(bigwig_file), "w") as bw:
+        bw.addHeader([(chrom, chrom_size)])
+        bw.addEntries(
+            [chrom] * len(starts),
+            starts,
+            ends=ends,
+            values=values,
+        )
+
+
+def read_bedpe(bedpe_file: os.PathLike) -> pd.DataFrame:
+    return pd.read_csv(
+        bedpe_file,
+        sep="\t",
+        names=[
+            "chrom1",
+            "start1",
+            "end1",
+            "chrom2",
+            "start2",
+            "end2",
+            "name",
+            "score",
+            "strand1",
+            "strand2",
+        ],
+    )
+
+
+def substract_bedpe(bedpe_file1: os.PathLike, bedpe_file2: os.PathLike) -> pd.DataFrame:
+    df1 = read_bedpe(bedpe_file1)
+    df2 = read_bedpe(bedpe_file2)
+
     df = df1.merge(
         df2,
         on=[
@@ -515,10 +580,14 @@ def substract_bedpe(df1: pd.DataFrame, df2: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def summation_bedpe(dfs: list[pd.DataFrame], total_counts: list[int]) -> pd.DataFrame:
+def summation_bedpe(
+    bedpe_files: list[os.PathLike], total_counts: list[int]
+) -> pd.DataFrame:
     dfs = [
-        df.assign(score=lambda df, total_count=total_count: df["score"] * total_count)
-        for df, total_count in zip(dfs, total_counts)
+        read_bedpe(bedpe_file).assign(
+            score=lambda df, total_count=total_count: df["score"] * total_count
+        )
+        for bedpe_file, total_count in zip(bedpe_files, total_counts)
     ]
 
     df_sum = dfs[0]
