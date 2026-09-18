@@ -5,8 +5,20 @@ import pandas as pd
 import pysam
 import sh
 
-from .common import ParseSamRead, filter_bam_reads
-from .utils import clone2assemble, get_precursor_pos, get_sample_bam
+from . import check
+from .common import (
+    ParseSamRead,
+    filter_bam_reads,
+    get_cpcdh_intron,
+    is_mapped_primary_first,
+)
+from .utils import (
+    clone2assemble,
+    clone2treat,
+    get_merge_bam,
+    get_sample_bam,
+    treat2assemble,
+)
 
 
 def parse_strand_sensitive_bam(cfg: dict):
@@ -102,154 +114,115 @@ def group_read_blocks(cfg: dict):
     df.to_feather(cfg["data_dir"] / "result" / "reads.feather")
 
 
-def merge_bam(cfg: dict, assemble: str) -> None:
+def merge_bam(cfg: dict) -> None:
     (cfg["data_dir"] / "bam" / "merge").mkdir(exist_ok=True, parents=True)
     samtools = sh.Command("samtools")
-    for exp in ["total", "rna", "pro", "clip"]:
-        for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
-            for wt in [True, False]:
-                if wt:
-                    treat = "control"
-                else:
-                    if exp != "clip":
-                        treat = "delta"
-                    else:
-                        treat = "tag"
-                if assemble == "mm10":
-                    treat = f"mm{treat}"
-
-                bam_files = []
-                for bam_file in os.listdir(cfg["data_dir"] / "bam"):
-                    if not bam_file.endswith(".bam"):
-                        continue
-                    exp_, protein_, clone_, _ = bam_file.split("_", 3)
-                    if exp_ != exp or protein_ != protein:
-                        continue
-                    if (assemble == "mm10") != clone_.startswith("mm"):
-                        continue
-                    if (assemble != "mm10") and wt != clone_.startswith("WT"):
-                        continue
-                    if (assemble == "mm10") and wt != clone_.startswith("mmWT"):
-                        continue
-
-                    bam_file = cfg["data_dir"] / "bam" / bam_file
-                    bam_files.append(os.fspath(bam_file))
-
-                if not bam_files:
-                    continue
-
-                merge_bam = (
-                    cfg["data_dir"] / "bam" / "merge" / f"{exp}_{protein}_{treat}.bam"
-                )
-                print(merge_bam, bam_files)
-
-                samtools(
-                    "merge",
-                    "-f",
-                    "-o",
-                    os.fspath(merge_bam),
-                    *bam_files,
-                )
-                samtools("index", os.fspath(merge_bam))
-
-
-def filter_precursor_bam(cfg: dict, bam_file: os.PathLike, strand: str) -> None:
-    parse_sam_read = ParseSamRead()
-    exp, protein, treat = bam_file.name.removesuffix(".bam").split("_")
-    assemble = "hg19" if not treat.startswith("mm") else "mm10"
-    df_se = get_precursor_pos(cfg, assemble)
-    with pysam.AlignmentFile(bam_file, "rb") as infile:
-        filtered_bam_file = (
-            bam_file.with_name("precursor")
-            / bam_file.with_suffix(f".{strand}.bam").name
-        )
-        with pysam.AlignmentFile(filtered_bam_file, "wb", template=infile) as outfile:
-            for read in infile.fetch(
-                cfg[assemble]["chrom"],
-                cfg[assemble]["start"],
-                cfg[assemble]["end"],
-            ):
-                if read.is_secondary:
-                    continue
-                if not read.is_mapped:
-                    continue
-                if read.is_supplementary:
-                    continue
-
-                read_strand = (
-                    "f"
-                    if read.is_read1
-                    and read.is_reverse
-                    or read.is_read2
-                    and read.is_forward
-                    else "r"
-                )
-                if read_strand != strand:
-                    continue
-
-                for (
-                    ref_block_chrom,
-                    ref_block_start,
-                    ref_block_end,
-                    ref_block_strand,
-                    query_block_start,
-                    query_block_end,
-                    align_string,
-                ) in parse_sam_read.parse_read(read):
-                    cover_up = (df_se["pos"] + cfg["cover_threshold"]).between(
-                        ref_block_start, ref_block_end
-                    )
-                    cover_down = (df_se["pos"] - cfg["cover_threshold"]).between(
-                        ref_block_start, ref_block_end
-                    )
-
-                    if (cover_up & cover_down).any():
-                        outfile.write(read)
-                        break
-
-    samtools = sh.Command("samtools")
-    samtools(
-        "index",
-        os.fspath(filtered_bam_file),
+    df = get_sample_bam(cfg).assign(
+        treat=lambda df: df["clone"].map(clone2treat),
+        assemble=lambda df: df["clone"].map(clone2assemble),
     )
+    for assemble in ["hg19", "mm10"]:
+        for exp in ["total", "rna", "pro", "clip"]:
+            for protein in ["WT", "NP220", "MPP8", "PPHLN1", "TASOR"]:
+                for treat in ["control", "treat"]:
+                    if assemble == "mm10":
+                        treat = f"mm{treat}"
+
+                    bamfiles = df.query(
+                        "assemble == @assemble and exp == @exp and protein == @protein and treat == @treat"
+                    )["file"].tolist()
+                    if not bamfiles:
+                        continue
+
+                    merge_bam = (
+                        cfg["data_dir"]
+                        / "bam"
+                        / "merge"
+                        / f"{exp}_{protein}_{treat}.bam"
+                    )
+                    print(merge_bam, bamfiles)
+
+                    samtools(
+                        "merge",
+                        "-f",
+                        "-o",
+                        os.fspath(merge_bam),
+                        *bamfiles,
+                    )
+                    samtools("index", os.fspath(merge_bam))
 
 
-def filter_splice_bam(cfg: dict, bam_file: os.PathLike) -> None:
-    exp, protein, treat = bam_file.name.removesuffix(".bam").split("_")
-    assemble = "hg19" if not treat.startswith("mm") else "mm10"
-    with pysam.AlignmentFile(bam_file, "rb") as infile:
-        filtered_bam_file = bam_file.with_name("splice") / bam_file.name
-        with pysam.AlignmentFile(filtered_bam_file, "wb", template=infile) as outfile:
-            for read in infile.fetch(
-                cfg[assemble]["chrom"], cfg[assemble]["start"], cfg[assemble]["end"]
-            ):
-                if read.is_secondary:
-                    continue
-                if not read.is_mapped:
-                    continue
-                if read.is_supplementary:
-                    continue
-
-                if "N" in read.cigarstring or read.has_tag("SA"):
-                    outfile.write(read)
-
-    samtools = sh.Command("samtools")
-    samtools(
-        "index",
-        os.fspath(filtered_bam_file),
-    )
-
-
-def filter_bam_all(cfg: dict) -> None:
+def filter_bam(cfg: dict) -> None:
     (cfg["data_dir"] / "bam" / "merge" / "precursor").mkdir(parents=True, exist_ok=True)
     (cfg["data_dir"] / "bam" / "merge" / "splice").mkdir(parents=True, exist_ok=True)
-    for bam_file in os.listdir(cfg["data_dir"] / "bam" / "merge"):
-        if not bam_file.endswith(".bam"):
-            continue
+    samtools = sh.Command("samtools")
+    parse_sam_read = ParseSamRead()
+    for exp, protein, treat, bamfile in get_merge_bam(cfg).itertuples(index=False):
+        bamfile = pathlib.Path(bamfile)
+        assemble = treat2assemble(treat)
+        df_intron = get_cpcdh_intron(
+            cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv"
+        )
+        intervals = df_intron.melt(
+            id_vars=["chrom", "name"],
+            value_vars=["start", "end"],
+            var_name="se",
+            value_name="pos",
+        ).assign(
+            start=lambda df: df["pos"] - cfg["cover_threshold"],
+            end=lambda df: df["pos"] + cfg["cover_threshold"],
+        )["chrom", "start", "end"]
 
-        bam_file = cfg["data_dir"] / "bam" / "merge" / bam_file
+        with pysam.AlignmentFile(bamfile, "rb") as infile:
+            precursor_forward_bam_file = (
+                bamfile.with_name("precursor") / bamfile.with_suffix(".f.bam").name
+            )
+            precursor_reverse_bam_file = (
+                bamfile.with_name("precursor") / bamfile.with_suffix(".r.bam").name
+            )
+            splice_bam_file = bamfile.with_name("splice") / bamfile.name
+            with (
+                pysam.AlignmentFile(
+                    precursor_forward_bam_file, "wb", template=infile
+                ) as pfb,
+                pysam.AlignmentFile(
+                    precursor_reverse_bam_file, "wb", template=infile
+                ) as prb,
+                pysam.AlignmentFile(splice_bam_file, "wb", template=infile) as sb,
+            ):
+                for read in infile.fetch(
+                    cfg[assemble]["chrom"],
+                    cfg[assemble]["start"],
+                    cfg[assemble]["end"],
+                ):
+                    if not is_mapped_primary_first(read):
+                        continue
 
-        for strand in ["f", "r"]:
-            filter_precursor_bam(cfg, bam_file, strand)
+                    if check.any_cover_any_nostrand(
+                        [
+                            (
+                                ref_block_chrom,
+                                ref_block_start,
+                                ref_block_end,
+                                ref_block_strand,
+                            )
+                            for ref_block_chrom, ref_block_start, ref_block_end, ref_block_strand, query_block_start, query_block_end, align_string in parse_sam_read.parse_read()
+                        ],
+                        intervals,
+                    ):
+                        if (
+                            read.is_read1
+                            and read.is_reverse
+                            or read.is_read2
+                            and read.is_forward
+                        ):
+                            pfb.write(read)
+                        else:
+                            prb.write(read)
 
-        filter_splice_bam(cfg, bam_file)
+                    if "N" in read.cigarstring or read.has_tag("SA"):
+                        sb.write(read)
+
+        samtools("index", os.fspath(precursor_forward_bam_file))
+        samtools("index", os.fspath(precursor_reverse_bam_file))
+        samtools("index", os.fspath(splice_bam_file))

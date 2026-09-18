@@ -3,7 +3,9 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+import pyBigWig
 import pysam
 import sh
 
@@ -236,6 +238,15 @@ def get_cpcdh_intron(cpcdh_csv: os.PathLike) -> pd.DataFrame:
     )
 
 
+def is_mapped_primary_first(read: pysam.AlignedSegment) -> bool:
+    if read.is_secondary:
+        return False
+    if not read.is_mapped:
+        return False
+
+    return not read.is_supplementary
+
+
 def filter_bam_reads(bamfile: os.PathLike, chrom: str, start: int, end: int):
     with pysam.AlignmentFile(os.fspath(bamfile)) as fd:
         for read in fd.fetch(
@@ -243,14 +254,8 @@ def filter_bam_reads(bamfile: os.PathLike, chrom: str, start: int, end: int):
             start=start,
             end=end,
         ):
-            if read.is_secondary:
-                continue
-            if not read.is_mapped:
-                continue
-            if read.is_supplementary:
-                continue
-
-            yield read
+            if is_mapped_primary_first(read):
+                yield read
 
 
 class ParseSamRead:
@@ -426,3 +431,48 @@ def pair_to_hic(
     sh.mv(os.fspath(hic_file.with_suffix(".m.hic")), os.fspath(hic_file))
 
     hictk("balance", "scale", os.fspath(hic_file))
+
+
+def get_bw(
+    bamfile: os.PathLike,
+    total_count: int,
+    bin_size: int,
+    chrom: str,
+    start: int,
+    end: int,
+    chrom_size,
+) -> None:
+    bamfile = Path(bamfile)
+    bamCoverage = sh.Command("bamCoverage")
+    with pysam.AlignmentFile(bamfile, "rb") as bam:
+        mapped_count = bam.mapped
+    if mapped_count > 0:
+        bamCoverage(
+            "--bam",
+            os.fspath(bamfile),
+            "-o",
+            os.fspath(bamfile.with_suffix(".bw")),
+            "-r",
+            f"{chrom}:{start}:{end}",
+            "--binSize",
+            bin_size,
+            "--scaleFactor",
+            1_000_000 / total_count,
+        )
+    else:
+        mid = (start + end) // 2
+        with pyBigWig.open(os.fspath(bamfile.with_suffix(".bw")), "w") as bw:
+            bw.addHeader([(chrom, chrom_size)])
+            bw.addEntries(chrom, [mid], values=[0.0], span=1)
+
+
+def merge_adjacent_intervals_with_identical_values(
+    starts: np.ndarray, ends: np.ndarray, values: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    change_indices = np.where(np.diff(values) != 0)[0] + 1
+
+    ends = np.concatenate((starts[change_indices], [ends[-1]]))
+    starts = starts[np.concatenate(([0], change_indices))]
+    values = values[np.concatenate(([0], change_indices))]
+
+    return starts, ends, values

@@ -63,14 +63,13 @@ cpcdh.fix_mm10_Pcdhgb8_CDS(
 from check_splice import config, sam
 
 cfg = config.pcdh()
-sam.merge_bam(cfg, "hg19")
-sam.merge_bam(cfg, "mm10")
+sam.merge_bam(cfg)
 
 # %%
 from check_splice import config, sam
 
 cfg = config.pcdh()
-sam.filter_bam_all(cfg)
+sam.filter_bam(cfg)
 
 # %%
 from check_splice import config, sam
@@ -128,24 +127,22 @@ ply.draw_interact(cfg, "hg19")
 ply.draw_interact(cfg, "mm10")
 
 # %%
-from check_splice import config, stat
+from check_splice import config, interact
 
 cfg = config.pcdh()
-stat.get_pairs(cfg, "hg19")
-stat.get_pairs(cfg, "mm10")
+interact.get_pairs(cfg)
 
 # %%
-from check_splice import config, stat
+from check_splice import config, interact
 
 cfg = config.pcdh()
-stat.get_interact(cfg, "hg19")
-stat.get_interact(cfg, "mm10")
+interact.get_interact(cfg)
 
 # %%
-from check_splice import cb, config
+from check_splice import config, interact
 
 cfg = config.pcdh()
-cb.pairs_to_bedpe(cfg)
+interact.pairs_to_bedpe(cfg)
 
 # %%
 from check_splice import cb, config

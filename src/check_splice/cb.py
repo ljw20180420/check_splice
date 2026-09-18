@@ -1,11 +1,9 @@
 import os
-import shutil
 
 import matplotlib.pyplot as plt
 import numpy as np
 import oxbow as ox
 import pandas as pd
-import py2bit
 import pyBigWig
 import pypdf
 import pysam
@@ -13,253 +11,7 @@ from coolbox.api import *
 from dna_features_viewer import GraphicFeature, GraphicRecord
 from dna_features_viewer.compute_features_levels import compute_features_levels
 
-from .utils import (
-    bw_merge_adjacent_intervals_with_identical_values,
-    get_precursor_pos,
-    select_total_count,
-)
-
-
-def pairs_to_bedpe(cfg: dict) -> None:
-    shutil.rmtree(cfg["data_dir"] / "result" / "hic" / "bedpe", ignore_errors=True)
-    (cfg["data_dir"] / "result" / "hic" / "bedpe").mkdir(parents=True, exist_ok=True)
-    for pairs_file in os.listdir(cfg["data_dir"] / "result" / "hic" / "pairs"):
-        exp, protein, treat = pairs_file.removesuffix(".pairs").split("_", 3)
-        total_count = select_total_count(cfg, exp, protein, treat)
-
-        pairs_file = cfg["data_dir"] / "result" / "hic" / "pairs" / pairs_file
-
-        df = pd.read_csv(
-            pairs_file,
-            sep="\t",
-            skiprows=1,
-            names=[
-                "readID",
-                "chrom1",
-                "pos1",
-                "chrom2",
-                "pos2",
-                "strand1",
-                "strand2",
-            ],
-        )
-
-        df = (
-            df
-            .rename(
-                columns={
-                    "pos1": "end1",
-                    "pos2": "end2",
-                }
-            )
-            .assign(
-                start1=lambda df: df["end1"] - 1,
-                start2=lambda df: df["end2"] - 1,
-            )
-            .groupby([
-                "chrom1",
-                "start1",
-                "end1",
-                "strand1",
-                "chrom2",
-                "start2",
-                "end2",
-                "strand2",
-            ])
-            .agg(
-                name=pd.NamedAgg("readID", lambda se: "|".join(se.tolist())),
-                score=pd.NamedAgg("readID", "count"),
-            )
-            .reset_index()
-            .assign(
-                score=lambda df, total_count=total_count: (
-                    df["score"] / total_count * 1_000_000
-                )
-            )[
-                [
-                    "chrom1",
-                    "start1",
-                    "end1",
-                    "chrom2",
-                    "start2",
-                    "end2",
-                    "name",
-                    "score",
-                    "strand1",
-                    "strand2",
-                ]
-            ]
-        )
-
-        assemble = "mm10" if treat.startswith("mm") else "hg19"
-        with py2bit.open(cfg[assemble]["2bit"]) as tb:
-            donors = []
-            acceptors = []
-            for chrom1, start1, chrom2, start2 in zip(
-                df["chrom1"], df["start1"], df["chrom2"], df["start2"]
-            ):
-                assert chrom1 == chrom2 and start1 < start2, "illegal order"
-                donors.append(tb.sequence(chrom1, start1, start1 + 2))
-                acceptors.append(tb.sequence(chrom2, start2 - 2, start2))
-
-        df = df.assign(
-            donor=donors,
-            acceptor=acceptors,
-        )
-
-        bedpe_file = (
-            cfg["data_dir"]
-            / "result"
-            / "hic"
-            / "bedpe"
-            / pairs_file.with_suffix(".bedpe").name
-        )
-
-        df.query("donor == 'GT' and acceptor == 'AG'").drop(
-            columns=["donor", "acceptor"]
-        ).to_csv(
-            bedpe_file.with_suffix(".f.bedpe"), sep="\t", header=False, index=False
-        )
-
-        df.query("donor == 'CT' and acceptor == 'AC'").drop(
-            columns=["donor", "acceptor"]
-        ).to_csv(
-            bedpe_file.with_suffix(".r.bedpe"), sep="\t", header=False, index=False
-        )
-
-        df.query(
-            "(donor != 'GT' or acceptor != 'AG') and (donor != 'CT' or acceptor != 'AC')"
-        ).drop(columns=["donor", "acceptor"]).to_csv(
-            bedpe_file.with_suffix(".o.bedpe"), sep="\t", header=False, index=False
-        )
-
-
-def diff_bedpe(cfg: dict, exp: str, protein: str, orientation: str) -> None:
-    treat = "delta" if exp != "clip" else "tag"
-    treat_file = (
-        cfg["data_dir"]
-        / "result"
-        / "hic"
-        / "bedpe"
-        / f"{exp}_{protein}_{treat}.{orientation}.bedpe"
-    )
-    if exp != "clip":
-        control_file = (
-            cfg["data_dir"]
-            / "result"
-            / "hic"
-            / "bedpe"
-            / f"{exp}_{protein}_control.{orientation}.bedpe"
-        )
-    else:
-        control_file = (
-            cfg["data_dir"]
-            / "result"
-            / "hic"
-            / "bedpe"
-            / f"{exp}_WT_control.{orientation}.bedpe"
-        )
-
-    df_treat = pd.read_csv(
-        treat_file,
-        sep="\t",
-        names=[
-            "chrom1",
-            "start1",
-            "end1",
-            "chrom2",
-            "start2",
-            "end2",
-            "name",
-            "score",
-            "strand1",
-            "strand2",
-            "donor",
-            "acceptor",
-        ],
-    )
-    df_control = pd.read_csv(
-        control_file,
-        sep="\t",
-        names=[
-            "chrom1",
-            "start1",
-            "end1",
-            "chrom2",
-            "start2",
-            "end2",
-            "name",
-            "score",
-            "strand1",
-            "strand2",
-            "donor",
-            "acceptor",
-        ],
-    )
-    df = df_treat.merge(
-        df_control,
-        on=[
-            "chrom1",
-            "start1",
-            "end1",
-            "chrom2",
-            "start2",
-            "end2",
-            "strand1",
-            "strand2",
-        ],
-        how="outer",
-    )
-
-    df = df.assign(
-        name=lambda df: df["name_x"].fillna("") + "-" + df["name_y"].fillna(""),
-        score=lambda df: df["score_x"].fillna(0) - df["score_y"].fillna(0),
-    )[
-        [
-            "chrom1",
-            "start1",
-            "end1",
-            "chrom2",
-            "start2",
-            "end2",
-            "name",
-            "score",
-            "strand1",
-            "strand2",
-        ]
-    ]
-
-    df.query("score > 0").to_csv(
-        (
-            cfg["data_dir"]
-            / "result"
-            / "hic"
-            / "bedpe"
-            / f"{exp}_{protein}_diff.up.{orientation}.bedpe"
-        ),
-        sep="\t",
-        index=False,
-        header=False,
-    )
-    df.query("score < 0").assign(score=lambda df: -df["score"]).to_csv(
-        (
-            cfg["data_dir"]
-            / "result"
-            / "hic"
-            / "bedpe"
-            / f"{exp}_{protein}_diff.down.{orientation}.bedpe"
-        ),
-        sep="\t",
-        index=False,
-        header=False,
-    )
-
-
-def diff_bedpe_all(cfg: dict) -> None:
-    for exp in ["total", "rna", "pro", "clip"]:
-        for protein in ["NP220", "MPP8", "PPHLN1", "TASOR"]:
-            for orientation in ["f", "r"]:
-                diff_bedpe(cfg, exp, protein, orientation)
+from .common import get_cpcdh_intron, merge_adjacent_intervals_with_identical_values
 
 
 def get_exon_pre(cfg: dict, assemble: str):
@@ -487,7 +239,7 @@ def construct_diff_bw(cfg: dict, assemble: str) -> None:
                 )
 
                 starts, ends, diff_values = (
-                    bw_merge_adjacent_intervals_with_identical_values(
+                    merge_adjacent_intervals_with_identical_values(
                         starts=np.arange(start, end),
                         ends=np.arange(start + 1, end + 1),
                         values=diff_values,
@@ -869,7 +621,13 @@ def draw_reads(
 
     (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
     df_se = (
-        get_precursor_pos(cfg, assemble)
+        get_cpcdh_intron(cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv")
+        .melt(
+            id_vars=["chrom", "name"],
+            value_vars=["start", "end"],
+            var_name="se",
+            value_name="pos",
+        )
         .query("name.str.lower().str.startswith('pcdha')")
         .reset_index(drop=True)
         .sort_values(by="pos", ignore_index=True)

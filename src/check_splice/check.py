@@ -1,3 +1,6 @@
+import pandas as pd
+
+
 def cover(
     blocks: list[tuple[str, int, int, str]],
     chrom: str,
@@ -50,3 +53,14 @@ def start(blocks: list[tuple[str, int, int, str]]) -> int:
     else:
         # strand = "-"
         return block_end
+
+
+def any_cover_any_nostrand(
+    blocks: list[tuple[str, int, int, str]], intervals: pd.DataFrame
+) -> bool:
+    for chrom, start, end, strand in blocks:
+        intervals_splice = intervals.query("chrom == @chrom").reset_index(drop=True)
+        cover_up = (intervals_splice["start"]).between(start, end)
+        cover_down = (intervals_splice["end"]).between(start, end)
+
+        return (cover_up & cover_down).any()
