@@ -1,60 +1,91 @@
-from collections.abc import Iterable
-
 import matplotlib
-import numpy as np
 import pandas as pd
 import pypdf
+from plotnine import (
+    aes,
+    element_text,
+    geom_text,
+    geom_tile,
+    ggplot,
+    labs,
+    scale_fill_gradient,
+    scale_y_discrete,
+    theme,
+)
 
-from .draw import around_heatmap
-from .utils import get_treat, select_total_count
+from . import check
+from .common import get_cpcdh_intron
+from .utils import SelectTotalCount, blocks_string2tuple, clone2assemble, clone2treat
 
 matplotlib.use("agg")
 
 
-def swap_elements(vec: list, a: str, b: str) -> list:
-    i, j = vec.index(a), vec.index(b)
-    vec[j], vec[i] = vec[i], vec[j]
-    return vec
-
-
 def splice(cfg: dict, assemble: str) -> None:
-    cpcdh_file = cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv"
-    df_cpcdh = pd.read_csv(cpcdh_file, header=0)
-    intron_names = df_cpcdh.query("type=='intron'")["name"].to_list()
+    df_intro = get_cpcdh_intron(
+        cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv"
+    ).query("name.str.lower().str.startswith('pcdha')")
 
-    read_file = cfg["data_dir"] / "result" / f"{assemble}_reads.feather"
-    df = pd.read_feather(read_file)
-
-    mask = np.any(
-        np.array([
-            df.columns.str.endswith(f".{intro_name}") for intro_name in intron_names
-        ]),
-        axis=0,
+    df = (
+        (
+            pd
+            .read_feather(cfg["data_dir"] / "result" / "reads.feather")
+            .assign(assemble=lambda df: df["clone"].map(clone2assemble))
+            .query("assemble == @assemble")
+            .reset_index(drop=True)
+        )
+        .assign(**{
+            f"splice.{name}": lambda df, chrom=chrom, start=start, end=end: df[
+                "ref_blocks"
+            ].map(
+                lambda ref_blocks, chrom=chrom, start=start, end=end: check.connect(
+                    list(blocks_string2tuple(ref_blocks)), chrom, start, end, "+"
+                )
+            )
+            for chrom, start, end, name in zip(
+                df_intro["chrom"], df_intro["start"], df_intro["end"], df_intro["name"]
+            )
+        })
+        .assign(**{
+            f"precursor.{name}": lambda df, chrom=chrom, start=start: df[
+                "ref_blocks"
+            ].map(
+                lambda ref_blocks, chrom=chrom, start=start - cfg["cover_threshold"], end=start + cfg["cover_threshold"]: (
+                    check.cover(
+                        list(blocks_string2tuple(ref_blocks)), chrom, start, end, "+"
+                    )
+                )
+            )
+            for chrom, start, name in zip(
+                df_intro["chrom"], df_intro["start"], df_intro["name"]
+            )
+        })
     )
-    columns = df.columns[mask].to_list()
 
     df = (
         df
-        .groupby(["exp", "protein", "clone", "rep", "query_name"])
+        .groupby(by=["exp", "protein", "clone", "rep", "query_name"], as_index=False)
         .agg(**{
-            column: pd.NamedAgg(column=column, aggfunc="any") for column in columns
+            f"{opt}.{name}": pd.NamedAgg(column=f"{opt}.{name}", aggfunc="any")
+            for name in df_intro["name"]
+            for opt in ["splice", "precursor"]
         })
         .copy()
-        .reset_index()
     )
 
+    select_total_count = SelectTotalCount(cfg)
     df = (
         df
-        .assign(treat=lambda df: get_treat(df))
-        .groupby(["exp", "protein", "treat"])
+        .assign(treat=lambda df: df["clone"].map(clone2treat))
+        .groupby(["exp", "protein", "treat"], as_index=False)
         .agg(**{
-            column: pd.NamedAgg(column=column, aggfunc="sum") for column in columns
+            f"{opt}.{name}": pd.NamedAgg(column=f"{opt}.{name}", aggfunc="sum")
+            for name in df_intro["name"]
+            for opt in ["splice", "precursor"]
         })
         .copy()
-        .reset_index()
         .assign(
             total_count=lambda df: [
-                select_total_count(cfg, exp, protein, treat)
+                select_total_count(exp, protein, treat)
                 for exp, protein, treat in zip(df["exp"], df["protein"], df["treat"])
             ]
         )
@@ -64,13 +95,17 @@ def splice(cfg: dict, assemble: str) -> None:
         df
         .melt(
             id_vars=["exp", "protein", "treat", "total_count"],
-            value_vars=columns,
+            value_vars=[
+                f"{opt}.{name}"
+                for name in df_intro["name"]
+                for opt in ["splice", "precursor"]
+            ],
             var_name="opt_intron",
             value_name="count",
         )
         .assign(
-            intron=lambda df: df["opt_intron"].str.rsplit(".", n=1, expand=True)[1],
-            opt=lambda df: df["opt_intron"].str.rsplit(".", n=1, expand=True)[0],
+            opt=lambda df: df["opt_intron"].str.split(".", expand=True)[0],
+            intron=lambda df: df["opt_intron"].str.split(".", expand=True)[1],
         )
         .pivot_table(
             values="count",
@@ -84,7 +119,7 @@ def splice(cfg: dict, assemble: str) -> None:
         pd
         .merge(
             df,
-            df_cpcdh[["chrom", "start", "end", "name"]],
+            df_intro[["chrom", "start", "end", "name"]],
             how="left",
             left_on="intron",
             right_on="name",
@@ -94,197 +129,111 @@ def splice(cfg: dict, assemble: str) -> None:
         .drop(columns="intron")
     )
 
-    df = df[swap_elements(df.columns.to_list(), "cover.start", "cover.end")]
-
     df.to_csv(cfg["data_dir"] / "result" / f"{assemble}_splice.csv", index=False)
-
-
-def around(
-    cfg: dict,
-    centers: Iterable[int],
-    center_names: Iterable[str],
-    center_axis_name: str,
-    extend: int,
-    targets: list[str],
-    filter: str,
-    assemble: str,
-):
-    result_file = cfg["data_dir"] / "result" / f"{assemble}_reads.feather"
-    df = pd.read_feather(result_file).assign(
-        treat=lambda df: get_treat(df),
-        exp_protein_treat=lambda df: (
-            df["exp"] + "_" + df["protein"] + "_" + df["treat"]
-        ),
-    )
-
-    df_arounds = []
-    for center, center_name, target in zip(centers, center_names, targets):
-        read_starts = (
-            df
-            .query(filter)
-            .reset_index(drop=True)[["exp_protein_treat", target]]
-            .value_counts()
-            .reset_index()
-        )
-
-        df_arounds.append(
-            read_starts
-            .assign(
-                relative=lambda df, center=center, target=target: df[target] - center
-            )
-            .query("relative >= -@extend and relative <= @extend")
-            .assign(**{center_axis_name: center_name})
-        )
-    df_around = pd.concat(df_arounds, ignore_index=True).assign(**{
-        center_axis_name: lambda df: pd.Categorical(
-            df[center_axis_name], categories=center_names, ordered=True
-        )
-    })
-
-    df_around_agg = (
-        df_around
-        .groupby([center_axis_name, "relative"])
-        .agg(count=pd.NamedAgg(column="count", aggfunc="sum"))
-        .reindex(
-            index=pd.MultiIndex.from_product(
-                [
-                    center_names,
-                    list(range(-extend, extend + 1)),
-                ],
-                names=[center_axis_name, "relative"],
-            ),
-            fill_value=0,
-        )
-        .reset_index()
-    )
-
-    yield df_around_agg, "agg", "count"
-
-    for exp_protein_treat in df_around["exp_protein_treat"].unique():
-        df_slice = (
-            df_around
-            .query("exp_protein_treat == @exp_protein_treat")
-            .reset_index(drop=True)[[center_axis_name, "relative", "count"]]
-            .set_index([center_axis_name, "relative"])
-            .reindex(
-                index=pd.MultiIndex.from_product(
-                    [
-                        center_names,
-                        list(range(-extend, extend + 1)),
-                    ],
-                    names=[center_axis_name, "relative"],
-                ),
-                fill_value=0,
-            )
-            .reset_index()
-        )
-
-        total_count = select_total_count(cfg, *exp_protein_treat.split("_"))
-        df_slice = df_slice.assign(
-            count=lambda df, total_count=total_count: (
-                df["count"] / total_count * 1_000_000
-            )
-        )
-
-        yield df_slice, exp_protein_treat, "RPM"
 
 
 def read_start_around_exon_start(cfg: dict, assemble: str) -> None:
     cpcdh_file = cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv"
     df_cpcdh = pd.read_csv(cpcdh_file, header=0)
-    tsses = df_cpcdh.query("type=='exon' and name.str.lower().str.startswith('pcdh')")[
+    tsses = df_cpcdh.query("name.str.lower().str.startswith('pcdha')")[
         ["start", "name"]
     ].reset_index(drop=True)
 
-    centers = tsses["start"]
-    center_names = tsses["name"]
-    center_axis_name = "exon_start"
-    extend = cfg["tss_extend"]
-    targets = ["read_start"] * len(center_names)
-    target_axis_name = "read_start"
-    if cfg["flip"] == "R2":
-        filter = "not is_shadow and is_read1 and is_forward"
-    elif cfg["flip"] == "R1":
-        filter = "not is_shadow and not is_read1 and is_forward"
-    else:
-        raise ValueError("flip must be either 'R1' or 'R2'")
-
-    pdf_files = []
-    with pypdf.PdfWriter() as pdf_writer:
-        for df, title, unit in around(
-            cfg,
-            centers,
-            center_names,
-            center_axis_name,
-            extend,
-            targets,
-            filter,
-            assemble,
-        ):
-            pdf_file = around_heatmap(
-                cfg,
-                df,
-                center_names,
-                center_axis_name,
-                title,
-                unit,
-                assemble,
-            )
-            pdf_writer.append(pdf_file)
-            pdf_files.append(pdf_file)
-
-        pdf_writer.write(
-            cfg["data_dir"]
-            / "result"
-            / f"{assemble}_{target_axis_name}_around_{center_axis_name}.pdf"
+    df = (
+        pd
+        .read_feather(cfg["data_dir"] / "result" / "reads.feather")
+        .assign(assemble=lambda df: df["clone"].map(clone2assemble))
+        .query("assemble == @assemble")
+        .assign(
+            treat=lambda df: df["clone"].map(clone2treat),
+            exp_protein_treat=lambda df: (
+                df["exp"] + "_" + df["protein"] + "_" + df["treat"]
+            ),
         )
+        .assign(
+            read_start=lambda df: df["ref_blocks"].map(
+                lambda ref_blocks: check.start(list(blocks_string2tuple(ref_blocks)))
+            )
+        )[["exp_protein_treat", "read_start"]]
+        .value_counts()
+        .reset_index()
+    )
 
-    for pdf_file in pdf_files:
-        pdf_file.unlink()
+    df = df.assign(**{
+        exon: lambda df, tss=tss: df["read_start"] - tss
+        for tss, exon in zip(tsses["start"], tsses["name"])
+    })
 
+    tss_extend = cfg["tss_extend"]
+    df = (
+        df
+        .melt(
+            id_vars=["exp_protein_treat", "read_start", "count"],
+            value_vars=tsses["name"].tolist(),
+            var_name="exon",
+            value_name="relative",
+        )
+        .query("relative >= -@tss_extend and relative <= @tss_extend")
+        .reset_index(drop=True)
+        .assign(
+            exon=lambda df: pd.Categorical(
+                df["exon"],
+                categories=tsses["name"].tolist(),
+                ordered=True,
+            )
+        )
+    )
 
-def inrange_end_around_exon_end(cfg: dict, assemble: str) -> None:
-    cpcdh_file = cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv"
-    df_cpcdh = pd.read_csv(cpcdh_file, header=0)
-    teses = df_cpcdh.query("type=='exon' and name.str.lower().str.startswith('pcdh')")[
-        ["end", "name"]
-    ].reset_index(drop=True)
-
-    centers = teses["end"]
-    center_names = teses["name"]
-    center_axis_name = "exon_end"
-    extend = cfg["exon_end_extend"]
-    targets = [f"inrange_end.end.{center_name}" for center_name in center_names]
-    target_axis_name = "inrange_end"
-    if cfg["flip"] == "R2":
-        filter = "not is_shadow and (is_read1 and is_forward or not is_read1 and not is_forward)"
-    elif cfg["flip"] == "R1":
-        filter = "not is_shadow and (not is_read1 and is_forward or is_read1 and not is_forward)"
-    else:
-        raise ValueError("flip must be either 'R1' or 'R2'")
-
+    select_total_count = SelectTotalCount(cfg)
     pdf_files = []
     with pypdf.PdfWriter() as pdf_writer:
-        for df, title, unit in around(
-            cfg,
-            centers,
-            center_names,
-            center_axis_name,
-            extend,
-            targets,
-            filter,
-            assemble,
-        ):
-            pdf_file = around_heatmap(
-                cfg, df, center_names, center_axis_name, title, unit, assemble
+        for exp_protein_treat in df["exp_protein_treat"].unique():
+            df_slice = (
+                df
+                .query("exp_protein_treat == @exp_protein_treat")
+                .reset_index(drop=True)[["exon", "relative", "count"]]
+                .set_index(["exon", "relative"])
+                .reindex(
+                    index=pd.MultiIndex.from_product(
+                        [
+                            tsses["name"],
+                            list(range(-tss_extend, tss_extend + 1)),
+                        ],
+                        names=["exon", "relative"],
+                    ),
+                    fill_value=0,
+                )
+                .reset_index()
             )
+
+            total_count = select_total_count(*exp_protein_treat.split("_"))
+            df_slice = df_slice.assign(
+                RPM=lambda df, total_count=total_count: (
+                    df["count"] / total_count * 1_000_000
+                ),
+                RPM_round=lambda df: df["RPM"].round(2),
+            )
+
+            pdf_file = (
+                cfg["data_dir"] / "result" / f"{assemble}_{exp_protein_treat}.pdf"
+            )
+            (
+                ggplot(df_slice, mapping=aes(x="relative", y="exon"))
+                + geom_tile(aes(fill="RPM"), color="#000000")
+                + geom_text(aes(label="RPM_round"), size=6)
+                + scale_fill_gradient(low="#FFFFFF", high="#FF0000")
+                + scale_y_discrete(limits=tsses["name"].tolist()[::-1])
+                + theme(
+                    axis_text_x=element_text(angle=90, ma="right"), figure_size=(20, 20)
+                )
+                + labs(title=exp_protein_treat, x="position")
+            ).save(pdf_file)
+
             pdf_writer.append(pdf_file)
             pdf_files.append(pdf_file)
 
         pdf_writer.write(
-            cfg["data_dir"]
-            / "result"
-            / f"{assemble}_{target_axis_name}_around_{center_axis_name}.pdf"
+            cfg["data_dir"] / "result" / f"{assemble}_read_start_around_tss.pdf"
         )
 
     for pdf_file in pdf_files:

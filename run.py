@@ -60,15 +60,30 @@ cpcdh.fix_mm10_Pcdhgb8_CDS(
 ).to_csv(cfg["data_dir"] / "result" / "mm10_cpcdh.csv", index=False)
 
 # %%
-import pandas as pd
+from check_splice import config, sam
 
+cfg = config.pcdh()
+sam.merge_bam(cfg, "hg19")
+sam.merge_bam(cfg, "mm10")
+
+# %%
+from check_splice import config, sam
+
+cfg = config.pcdh()
+sam.filter_bam_all(cfg)
+
+# %%
 from check_splice import config, sam
 
 cfg = config.pcdh()
 with open(cfg["data_dir"] / "result" / "reads.csv", "w") as fd:
     fd.writelines((f"{line}\n" for line in sam.parse_strand_sensitive_bam(cfg)))
-df = pd.read_csv(cfg["data_dir"] / "result" / "reads.csv", header=0)
-df.to_feather(cfg["data_dir"] / "result" / "reads.feather")
+
+# %%
+from check_splice import config, sam
+
+cfg = config.pcdh()
+sam.group_read_blocks(cfg)
 
 # %%
 from check_splice import config, stat
@@ -90,26 +105,6 @@ from check_splice import config, stat
 cfg = config.pcdh()
 stat.read_start_around_exon_start(cfg, "hg19")
 stat.read_start_around_exon_start(cfg, "mm10")
-
-# %%
-from check_splice import config, stat
-
-cfg = config.pcdh()
-stat.inrange_end_around_exon_end(cfg, "hg19")
-stat.inrange_end_around_exon_end(cfg, "mm10")
-
-# %%
-from check_splice import config, sam
-
-cfg = config.pcdh()
-sam.merge_bam(cfg, "hg19")
-sam.merge_bam(cfg, "mm10")
-
-# %%
-from check_splice import config, sam
-
-cfg = config.pcdh()
-sam.filter_bam_all(cfg)
 
 # %%
 from check_splice import config, ply

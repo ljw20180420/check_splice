@@ -5,11 +5,9 @@ import subprocess
 
 import numpy as np
 import pandas as pd
-import pyarrow as pa
 import pyBigWig
 import pysam
 import sh
-from pyarrow import ipc
 
 
 def get_sample_bam(cfg: dict) -> pd.DataFrame:
@@ -44,76 +42,38 @@ def clone2assemble(clone: str) -> str:
     return "hg19"
 
 
-def select_total_count(cfg: dict, exp: str, protein: str, treat: str) -> int:
-    df_total = pd.read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
-    df_total = (
-        df_total
-        .assign(treat=lambda df: get_treat(df))
-        .groupby(["exp", "protein", "treat"])["total_count"]
-        .sum()
-        .reset_index()
-    )
-
-    total_count = df_total.query(
-        "exp == @exp and protein == @protein and treat == @treat"
-    )["total_count"].item()
-
-    return total_count
-
-
-def pair_to_hic(
-    pair_file: os.PathLike, resolutions: list[int], chrom_sizes: os.PathLike
-) -> None:
-    hic_file = pair_file.with_suffix(".hic")
-    subprocess.run(
-        args=[
-            "hictk",
-            "load",
-            "--format",
-            "4dn",
-            "--bin-size",
-            f"{resolutions[0]}",
-            "--chrom-sizes",
-            os.fspath(chrom_sizes),
-            "--force",
-            os.fspath(pair_file),
-            os.fspath(hic_file),
-        ],
-        check=False,
-    )
-
-    subprocess.run(
-        args=["hictk", "zoomify", "--resolutions"]
-        + [f"{resolution}" for resolution in resolutions]
-        + [
-            "--force",
-            os.fspath(hic_file),
-            f"{os.fspath(hic_file.with_suffix('.m.hic'))}",
-        ],
-        check=False,
-    )
-
-    shutil.move(f"{os.fspath(hic_file.with_suffix('.m.hic'))}", os.fspath(hic_file))
-
-    subprocess.run(args=["hictk", "balance", "scale", os.fspath(hic_file)], check=False)
-
-
-def get_treat(df: pd.DataFrame) -> pd.Series:
-    treat = df["clone"].map(
-        lambda ele: (
-            "mmcontrol"
-            if ele.startswith("mmWT")
-            else "mmdelta"
-            if ele.startswith("mm")
-            else "control"
-            if ele.startswith("WT")
-            else "delta"
-        )
-    )
-    treat = treat.where((df["exp"] != "clip") | (treat.str.contains("control")), "tag")
-    treat = treat.where((treat != "tag") | (~df["clone"].str.startswith("mm")), "mmtag")
+def clone2treat(clone: str) -> str:
+    if clone.startswith("mmWT"):
+        return "mmcontrol"
+    if clone.startswith("WT"):
+        return "control"
+    treat = "treat"
+    if clone.startswith("mm"):
+        treat = f"mm{treat}"
 
     return treat
+
+
+def blocks_string2tuple(blocks: str):
+    for block in blocks.split(";"):
+        chrom, start, end, strand = block.split(":")
+        yield chrom, int(start), int(end), strand
+
+
+class SelectTotalCount:
+    def __init__(self, cfg: dict) -> None:
+        self.df_total = (
+            pd
+            .read_csv(cfg["data_dir"] / "result" / "total_count.csv", header=0)
+            .assign(treat=lambda df: df["clone"].map(clone2treat))
+            .groupby(by=["exp", "protein", "treat"], as_index=False)["total_count"]
+            .sum()
+        )
+
+    def __call__(self, exp: str, protein: str, treat: str) -> int:
+        return self.df_total.query(
+            "exp == @exp and protein == @protein and treat == @treat"
+        )["total_count"].item()
 
 
 def get_bw(

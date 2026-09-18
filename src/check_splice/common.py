@@ -226,6 +226,7 @@ def get_cpcdh_intron(cpcdh_csv: os.PathLike) -> pd.DataFrame:
     return (
         pd
         .DataFrame({
+            "chrom": df.loc[0, "chrom"],
             "start": intron_starts,
             "end": intron_ends,
             "name": intron_names,
@@ -393,3 +394,35 @@ class ParseSamRead:
             query_length - query_block_start,
             "".join(reversed(self.align_sting_parser.findall(align_string))),
         )
+
+
+def pair_to_hic(
+    pair_file: os.PathLike, resolutions: list[int], chrom_sizes: os.PathLike
+) -> None:
+    hic_file = pair_file.with_suffix(".hic")
+    hictk = sh.Command("hictk")
+    hictk(
+        "load",
+        "--format",
+        "4dn",
+        "--bin-size",
+        f"{resolutions[0]}",
+        "--chrom-sizes",
+        os.fspath(chrom_sizes),
+        "--force",
+        os.fspath(pair_file),
+        os.fspath(hic_file),
+    )
+
+    hictk(
+        "zoomify",
+        "--resolutions",
+        *[f"{resolution}" for resolution in resolutions],
+        "--force",
+        os.fspath(hic_file),
+        f"{os.fspath(hic_file.with_suffix('.m.hic'))}",
+    )
+
+    sh.mv(os.fspath(hic_file.with_suffix(".m.hic")), os.fspath(hic_file))
+
+    hictk("balance", "scale", os.fspath(hic_file))

@@ -1,6 +1,7 @@
 import os
 import pathlib
 
+import pandas as pd
 import pysam
 import sh
 
@@ -51,7 +52,54 @@ def parse_strand_sensitive_bam(cfg: dict):
                         read.query_length,
                     )
 
-                yield f"{exp},{protein},{clone},{rep},{read.query_name},{read.get_forward_sequence()}{read.is_forward},{read.is_read1},{read.is_qcfail},{read.is_duplicate},{read.mapping_quality},{ref_block_chrom},{ref_block_start},{ref_block_end},{ref_block_strand},{query_block_start},{query_block_end},{align_string}"
+                yield f"{exp},{protein},{clone},{rep},{read.query_name},{read.get_forward_sequence()},{read.is_forward},{read.is_read1},{read.is_qcfail},{read.is_duplicate},{read.mapping_quality},{ref_block_chrom},{ref_block_start},{ref_block_end},{ref_block_strand},{query_block_start},{query_block_end},{align_string}"
+
+
+def group_read_blocks(cfg: dict):
+    df = pd.read_csv(cfg["data_dir"] / "result" / "reads.csv", header=0)
+    df = (
+        df
+        .assign(
+            ref_block=lambda df: (
+                df["ref_block_chrom"]
+                + ":"
+                + df["ref_block_start"].astype(str)
+                + ":"
+                + df["ref_block_end"].astype(str)
+                + ":"
+                + df["ref_block_strand"]
+            ),
+            query_block=lambda df: (
+                df["query_block_start"].astype(str)
+                + ":"
+                + df["query_block_end"].astype(str)
+            ),
+        )
+        .sort_values(by="query_block_start")
+        .groupby(
+            by=[
+                "exp",
+                "protein",
+                "clone",
+                "rep",
+                "query_name",
+                "is_read1",
+            ],
+            as_index=False,
+            sort=True,
+        )
+        .agg(
+            query=pd.NamedAgg(column="query", aggfunc="first"),
+            is_forward=pd.NamedAgg(column="is_forward", aggfunc="first"),
+            is_qcfail=pd.NamedAgg(column="is_qcfail", aggfunc="first"),
+            is_duplicate=pd.NamedAgg(column="is_duplicate", aggfunc="first"),
+            mapping_quality=pd.NamedAgg(column="mapping_quality", aggfunc="first"),
+            ref_blocks=pd.NamedAgg(column="ref_block", aggfunc=";".join),
+            query_blocks=pd.NamedAgg(column="query_block", aggfunc=";".join),
+            align_strings=pd.NamedAgg(column="align_string", aggfunc=";".join),
+        )
+    )
+    df.to_feather(cfg["data_dir"] / "result" / "reads.feather")
 
 
 def merge_bam(cfg: dict, assemble: str) -> None:

@@ -1,6 +1,3 @@
-import os
-from collections.abc import Iterable
-
 import matplotlib
 import pandas as pd
 import pypdf
@@ -12,7 +9,6 @@ from plotnine import (
     ggplot,
     labs,
     scale_fill_gradient,
-    scale_y_discrete,
     theme,
 )
 
@@ -23,15 +19,13 @@ def splice_heatmap(cfg: dict, assemble: str):
     df = pd.read_csv(cfg["data_dir"] / "result" / f"{assemble}_splice.csv", header=0)
     df = df.assign(
         name=lambda df: pd.Categorical(
-            df["name"], categories=df["name"].drop_duplicates(), ordered=True
+            df["name"], categories=df["name"].unique(), ordered=True
         ),
         protein_treat=lambda df: df["protein"] + "_" + df["treat"],
     ).assign(**{
-        "splice (RPM)": lambda df: df["connect"] / df["total_count"] * 1_000_000,
-        "precursor (RPM)": lambda df: df["cover.start"] / df["total_count"] * 1_000_000,
-        "splice %": lambda df: (
-            df["connect"] / (df["cover.start"] + df["connect"]) * 100
-        ),
+        "splice (RPM)": lambda df: df["splice"] / df["total_count"] * 1_000_000,
+        "precursor (RPM)": lambda df: df["precursor"] / df["total_count"] * 1_000_000,
+        "splice %": lambda df: df["splice"] / (df["precursor"] + df["splice"]) * 100,
     })
 
     targets = [
@@ -46,9 +40,7 @@ def splice_heatmap(cfg: dict, assemble: str):
     with pypdf.PdfWriter() as pdf_writer:
         for exp in df["exp"].unique():
             for target in targets:
-                df_slice = df.query(
-                    "name.str.lower().str.startswith('pcdha') and exp == @exp"
-                )
+                df_slice = df.query("exp == @exp")
                 (
                     ggplot(
                         data=df_slice,
@@ -68,30 +60,3 @@ def splice_heatmap(cfg: dict, assemble: str):
         for target in targets:
             for exp in df["exp"].unique():
                 (cfg["data_dir"] / "result" / f"{target}_{exp}.pdf").unlink()
-
-
-def around_heatmap(
-    cfg: dict,
-    df: pd.DataFrame,
-    center_names: Iterable[str],
-    center_axis_name: str,
-    title: str,
-    unit: str,
-    assemble: str,
-) -> os.PathLike:
-    pdf_file = cfg["data_dir"] / "result" / f"{assemble}_{title}.pdf"
-
-    (
-        ggplot(
-            df.assign(round=lambda df: df["count"].round(2)),
-            mapping=aes(x="relative", y=center_axis_name),
-        )
-        + geom_tile(aes(fill="count"), color="#000000")
-        + geom_text(aes(label="round"), size=6)
-        + scale_fill_gradient(low="#FFFFFF", high="#FF0000")
-        + scale_y_discrete(limits=list(center_names)[::-1])
-        + theme(axis_text_x=element_text(angle=90, ma="right"), figure_size=(20, 20))
-        + labs(title=title, x="position", y="exon", fill=unit)
-    ).save(pdf_file)
-
-    return pdf_file
