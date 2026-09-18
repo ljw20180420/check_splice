@@ -106,6 +106,12 @@ stat.read_start_around_exon_start(cfg, "hg19")
 stat.read_start_around_exon_start(cfg, "mm10")
 
 # %%
+from check_splice import config, stat
+
+cfg = config.pcdh()
+stat.get_exon_pre(cfg)
+
+# %%
 from check_splice import config, ply
 
 cfg = config.pcdh()
@@ -149,13 +155,6 @@ from check_splice import config, interact
 
 cfg = config.pcdh()
 interact.diff_bedpe(cfg)
-
-# %%
-from check_splice import cb, config
-
-cfg = config.pcdh()
-cb.get_exon_pre(cfg, "hg19")
-cb.get_exon_pre(cfg, "mm10")
 
 # %%
 from check_splice import cb, config

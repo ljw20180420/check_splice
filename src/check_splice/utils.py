@@ -1,11 +1,6 @@
 import os
-import pathlib
 
-import numpy as np
 import pandas as pd
-import pyBigWig
-import pysam
-import sh
 
 
 def get_sample_bam(cfg: dict) -> pd.DataFrame:

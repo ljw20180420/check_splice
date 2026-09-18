@@ -1,6 +1,10 @@
+import os
+import pathlib
+
 import matplotlib
 import pandas as pd
 import pypdf
+import pysam
 from plotnine import (
     aes,
     element_text,
@@ -14,8 +18,15 @@ from plotnine import (
 )
 
 from . import check
-from .common import get_cpcdh_intron
-from .utils import SelectTotalCount, blocks_string2tuple, clone2assemble, clone2treat
+from .common import get_cpcdh_intron, is_mapped_primary_first
+from .utils import (
+    SelectTotalCount,
+    blocks_string2tuple,
+    clone2assemble,
+    clone2treat,
+    get_merge_bam,
+    treat2assemble,
+)
 
 matplotlib.use("agg")
 
@@ -238,3 +249,68 @@ def read_start_around_exon_start(cfg: dict, assemble: str) -> None:
 
     for pdf_file in pdf_files:
         pdf_file.unlink()
+
+
+def get_exon_pre(cfg: dict):
+    dfs = {
+        "hg19": [],
+        "mm10": [],
+    }
+    for exp, protein, treat, bamfile in get_merge_bam(cfg).itertuples(index=False):
+        bamfile = pathlib.Path(bamfile)
+        assemble = treat2assemble(treat)
+
+        df_cpcdh = (
+            pd
+            .read_csv(cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv", header=0)
+            .query("name.str.lower().str.startswith('pcdha')")
+            .reset_index(drop=True)
+        )
+        df_cpcdh = df_cpcdh.assign(
+            pre_start=lambda df: (
+                [df.loc[0, "start"].item() - cfg["size_before_first"]]
+                + df["end"].to_list()[:-1]
+            ),
+            pre_end=lambda df: df["start"],
+        )
+
+        exon_counts = []
+        pre_counts = []
+        with pysam.AlignmentFile(os.fspath(bamfile)) as sam:
+            for chrom, start, end, pre_start, pre_end in zip(
+                df_cpcdh["chrom"],
+                df_cpcdh["start"],
+                df_cpcdh["end"],
+                df_cpcdh["pre_start"],
+                df_cpcdh["pre_end"],
+            ):
+                exon_counts.append(
+                    sum(
+                        1
+                        for read in sam.fetch(chrom, start, end)
+                        if is_mapped_primary_first(read)
+                    )
+                )
+
+                pre_counts.append(
+                    sum(
+                        1
+                        for read in sam.fetch(chrom, pre_start, pre_end)
+                        if is_mapped_primary_first(read)
+                    )
+                )
+
+        df = df_cpcdh[["chrom", "start", "end", "name", "pre_start", "pre_end"]].assign(
+            exon_count=exon_counts,
+            pre_count=pre_counts,
+            exp=exp,
+            protein=protein,
+            treat=treat,
+        )
+
+        dfs[assemble].append(df)
+
+    for assemble in ["hg19", "mm10"]:
+        pd.concat(dfs[assemble], ignore_index=True).to_csv(
+            cfg["data_dir"] / "result" / f"{assemble}_exon_pre.csv", index=False
+        )
