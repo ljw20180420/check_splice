@@ -4,7 +4,7 @@ import shutil
 import pandas as pd
 import py2bit
 
-from .common import substract_bedpe
+from .common import substract_bedpe, summation_bedpe
 from .utils import (
     SelectTotalCount,
     clone2treat,
@@ -380,3 +380,60 @@ def diff_bedpe(cfg: dict) -> None:
                     index=False,
                     header=False,
                 )
+
+
+def sum_bedpe(cfg: dict) -> None:
+    (cfg["data_dir"] / "result" / "hic" / "bedpe" / "sum").mkdir(
+        exist_ok=True, parents=True
+    )
+    df_merge = get_merge_bam(cfg)
+    select_total_count = SelectTotalCount(cfg)
+    for treat in df_merge["treat"].unique():
+        df_merge_slice = df_merge.query("treat == @treat").reset_index(drop=True)
+        for orientation in ["f", "r"]:
+            bedpe_files = (
+                df_merge_slice["exp"]
+                + "_"
+                + df_merge_slice["protein"]
+                + f"_{treat}.{orientation}.bedpe"
+            )
+            total_counts = [
+                select_total_count(exp, protein, treat)
+                for exp, protein in zip(
+                    df_merge_slice["exp"], df_merge_slice["protein"]
+                )
+            ]
+            df_sum = summation_bedpe(
+                [
+                    pd.read_csv(
+                        cfg["data_dir"] / "result" / "hic" / "bedpe" / bedpe_file,
+                        sep="\t",
+                        names=[
+                            "chrom1",
+                            "start1",
+                            "end1",
+                            "chrom2",
+                            "start2",
+                            "end2",
+                            "name",
+                            "score",
+                            "strand1",
+                            "strand2",
+                        ],
+                    )
+                    for bedpe_file in bedpe_files
+                ],
+                total_counts,
+            )
+
+            df_sum.to_csv(
+                cfg["data_dir"]
+                / "result"
+                / "hic"
+                / "bedpe"
+                / "sum"
+                / f"{treat}.{orientation}.bedpe",
+                sep="\t",
+                index=False,
+                header=False,
+            )

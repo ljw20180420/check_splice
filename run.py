@@ -157,6 +157,12 @@ cfg = config.pcdh()
 interact.diff_bedpe(cfg)
 
 # %%
+from check_splice import config, interact
+
+cfg = config.pcdh()
+interact.sum_bedpe(cfg)
+
+# %%
 from check_splice import cb, config
 
 cfg = config.pcdh()
