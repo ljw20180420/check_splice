@@ -169,24 +169,26 @@ cfg = config.pcdh()
 interact.filter_non_cpcdh_junction(cfg)
 
 # %%
-from check_splice import cb, config
+from check_splice import bigwig, config
 
 cfg = config.pcdh()
-cb.construct_artifact_bw(cfg, "hg19")
-cb.construct_artifact_bw(cfg, "mm10")
+bigwig.construct_artifact_bw(cfg, "hg19")
+bigwig.construct_artifact_bw(cfg, "mm10")
 
 # %%
-from check_splice import cb, config
+from check_splice import bigwig, config
 
 cfg = config.pcdh()
-cb.construct_diff_bw(cfg)
+bigwig.construct_diff_bw(cfg)
 
 # %%
-from check_splice import cb, config
+from check_splice import cb, common, config
 
 cfg = config.pcdh()
-cb.draw_all(cfg, "hg19")
-cb.draw_all(cfg, "mm10")
+common.merge_pdf(
+    cb.draw_links(cfg, cluster="alpha"),
+    cfg["data_dir"] / "result" / "hic" / "draw" / "links.pdf",
+)
 
 # %%
 from check_splice import cb, config

@@ -12,6 +12,7 @@ def pcdh():
             "PPHLN1": "#A52A2A",
             "MPP8": "#800080",
             "TASOR": "#008000",
+            "ROYAL": "#4169E1",
             "INCREASE": "#FF0000",
             "DECREASE": "#0000FF",
         },

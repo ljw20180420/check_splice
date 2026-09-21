@@ -350,25 +350,21 @@ def diff_bedpe(cfg: dict) -> None:
 
 
 def sum_bedpe(cfg: dict) -> None:
-    (cfg["data_dir"] / "result" / "hic" / "bedpe" / "sum").mkdir(
-        exist_ok=True, parents=True
-    )
     df_merge = get_merge_bam(cfg)
     select_total_count = SelectTotalCount(cfg)
-    for treat in df_merge["treat"].unique():
-        df_merge_slice = df_merge.query("treat == @treat").reset_index(drop=True)
+    for exp, treat in (
+        df_merge[["exp", "treat"]].drop_duplicates().itertuples(index=False)
+    ):
+        df_merge_slice = df_merge.query("exp == @exp and treat == @treat").reset_index(
+            drop=True
+        )
         for orientation in ["f", "r"]:
             bedpe_files = (
-                df_merge_slice["exp"]
-                + "_"
-                + df_merge_slice["protein"]
-                + f"_{treat}.{orientation}.bedpe"
+                f"{exp}_" + df_merge_slice["protein"] + f"_{treat}.{orientation}.bedpe"
             )
             total_counts = [
                 select_total_count(exp, protein, treat)
-                for exp, protein in zip(
-                    df_merge_slice["exp"], df_merge_slice["protein"]
-                )
+                for protein in df_merge_slice["protein"]
             ]
             df_sum = summation_bedpe(
                 [
@@ -383,8 +379,7 @@ def sum_bedpe(cfg: dict) -> None:
                 / "result"
                 / "hic"
                 / "bedpe"
-                / "sum"
-                / f"{treat}.{orientation}.bedpe",
+                / f"{exp}_merge_{treat}.{orientation}.bedpe",
                 sep="\t",
                 index=False,
                 header=False,
@@ -392,58 +387,30 @@ def sum_bedpe(cfg: dict) -> None:
 
 
 def filter_non_cpcdh_junction(cfg: dict) -> None:
-    (cfg["data_dir"] / "result" / "hic" / "bedpe" / "sum" / "cpcdh").mkdir(
+    (cfg["data_dir"] / "result" / "hic" / "bedpe" / "cpcdh").mkdir(
         exist_ok=True, parents=True
     )
     df_merge = get_merge_bam(cfg)
-    for treat in df_merge["treat"].unique():
+    for exp, treat in (
+        df_merge[["exp", "treat"]].drop_duplicates().itertuples(index=False)
+    ):
         assemble = treat2assemble(treat)
         df_intron = get_cpcdh_intron(
             cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv"
         )
-        for orientation in ["f", "r"]:
-            df = pd.read_csv(
-                cfg["data_dir"]
-                / "result"
-                / "hic"
-                / "bedpe"
-                / "sum"
-                / f"{treat}.{orientation}.bedpe",
-                sep="\t",
-                names=[
-                    "chrom1",
-                    "start1",
-                    "end1",
-                    "chrom2",
-                    "start2",
-                    "end2",
-                    "name",
-                    "score",
-                    "strand1",
-                    "strand2",
-                ],
-            )
-
-            df = (
-                df
-                .assign(**{
-                    name: lambda df, start=start, end=end: (
-                        (df["start1"] == start) & (df["start2"] == end)
-                    )
-                    for start, end, name in zip(
-                        df_intron["start"],
-                        df_intron["end"],
-                        df_intron["name"],
-                    )
-                })
-                .assign(
-                    cpcdh=lambda df, df_intron=df_intron: df[
-                        df_intron["name"].tolist()
-                    ].any(axis=1)
-                )
-                .query("cpcdh")
-                .reset_index(drop=True)[
-                    [
+        df_merge_slice = df_merge.query("exp == @exp and treat == @treat").reset_index(
+            drop=True
+        )
+        for protein in ["merge"] + df_merge_slice["protein"].tolist():
+            for orientation in ["f", "r"]:
+                df = pd.read_csv(
+                    cfg["data_dir"]
+                    / "result"
+                    / "hic"
+                    / "bedpe"
+                    / f"{exp}_{protein}_{treat}.{orientation}.bedpe",
+                    sep="\t",
+                    names=[
                         "chrom1",
                         "start1",
                         "end1",
@@ -454,19 +421,51 @@ def filter_non_cpcdh_junction(cfg: dict) -> None:
                         "score",
                         "strand1",
                         "strand2",
-                    ]
-                ]
-            )
+                    ],
+                )
 
-            df.to_csv(
-                cfg["data_dir"]
-                / "result"
-                / "hic"
-                / "bedpe"
-                / "sum"
-                / "cpcdh"
-                / f"{treat}.{orientation}.bedpe",
-                sep="\t",
-                index=False,
-                header=False,
-            )
+                df = (
+                    df
+                    .assign(**{
+                        name: lambda df, start=start, end=end: (
+                            (df["start1"] == start) & (df["start2"] == end)
+                        )
+                        for start, end, name in zip(
+                            df_intron["start"],
+                            df_intron["end"],
+                            df_intron["name"],
+                        )
+                    })
+                    .assign(
+                        cpcdh=lambda df, df_intron=df_intron: df[
+                            df_intron["name"].tolist()
+                        ].any(axis=1)
+                    )
+                    .query("cpcdh")
+                    .reset_index(drop=True)[
+                        [
+                            "chrom1",
+                            "start1",
+                            "end1",
+                            "chrom2",
+                            "start2",
+                            "end2",
+                            "name",
+                            "score",
+                            "strand1",
+                            "strand2",
+                        ]
+                    ]
+                )
+
+                df.to_csv(
+                    cfg["data_dir"]
+                    / "result"
+                    / "hic"
+                    / "bedpe"
+                    / "cpcdh"
+                    / f"{exp}_{protein}_{treat}.{orientation}.bedpe",
+                    sep="\t",
+                    index=False,
+                    header=False,
+                )

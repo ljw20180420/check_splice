@@ -1,11 +1,12 @@
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pyBigWig
+import pypdf
 import pysam
 import sh
 
@@ -629,3 +630,19 @@ def summation_bedpe(
         ]
 
     return df_sum.assign(score=lambda df: df["score"] / sum(total_counts))
+
+
+def merge_pdf(
+    pdf_generator: Iterable,
+    merge_file: os.PathLike,
+):
+    pdf_files = []
+    with pypdf.PdfWriter() as pdf_writer:
+        for pdf_file in pdf_generator:
+            pdf_writer.append(pdf_file)
+            pdf_files.append(pdf_file)
+
+        pdf_writer.write(merge_file)
+
+    for pdf_file in pdf_files:
+        pdf_file.unlink()
