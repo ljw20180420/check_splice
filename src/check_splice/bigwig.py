@@ -1,0 +1,119 @@
+import os
+
+import numpy as np
+import pandas as pd
+import pyBigWig
+
+from .common import substract_bigwig, write_bigwig
+from .utils import get_merge_bam, map_to_wild_type_merge, treat2assemble, treat2diff
+
+
+def construct_artifact_bw(cfg: dict, assemble: str) -> None:
+    df_splice = (
+        pd
+        .read_csv(cfg["data_dir"] / "result" / f"{assemble}_splice.csv", header=0)
+        .query("name.str.lower().str.startswith('pcdha')")
+        .reset_index(drop=True)
+        .assign(**{
+            "splice %": lambda df: df["splice"] / (df["splice"] + df["precursor"]) * 100
+        })
+    )
+
+    for exp, protein, treat, bamfile in get_merge_bam(cfg).itertuples(index=False):
+        df_splice_slice = df_splice.query(
+            "exp == @exp and protein == @protein and treat == @treat"
+        ).reset_index(drop=True)
+
+        if len(df_splice_slice) == 0:
+            continue
+
+        (cfg["data_dir"] / "result" / "bw").mkdir(exist_ok=True, parents=True)
+        bw_file = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
+
+        df_pv = (
+            df_splice_slice[["start", "splice %"]]
+            .assign(
+                end=lambda df: df["start"] + 1,
+                value=lambda df: df["splice %"].fillna(0.0),
+            )[["start", "end", "value"]]
+            .sort_values(by=["start"], ignore_index=True)
+        )
+
+        df_pv = (
+            pd
+            .concat(
+                [
+                    pd.DataFrame({
+                        "start": [
+                            cfg[assemble]["start"],
+                            df_pv["end"].to_list()[-1],
+                        ],
+                        "end": [
+                            df_pv["start"].to_list()[0],
+                            cfg[assemble]["end"],
+                        ],
+                        "value": 0.0,
+                    }),
+                    df_pv,
+                    pd.DataFrame({
+                        "start": df_pv["end"].to_list()[:-1],
+                        "end": df_pv["start"].to_list()[1:],
+                        "value": 0.0,
+                    }),
+                ],
+                axis=0,
+            )
+            .assign(chrom=cfg[assemble]["chrom"])
+            .sort_values(by=["start"], ignore_index=True)
+        )
+
+        with pyBigWig.open(os.fspath(bw_file), "w") as bw:
+            bw.addHeader([(cfg[assemble]["chrom"], cfg[assemble]["length"])])
+            bw.addEntries(
+                df_pv["chrom"].to_list(),
+                df_pv["start"].to_list(),
+                ends=df_pv["end"].to_list(),
+                values=df_pv["value"].to_list(),
+            )
+
+
+def construct_diff_bw(cfg: dict) -> None:
+    df_merge = (
+        get_merge_bam(cfg).query("treat.str.endswith('treat')").reset_index(drop=True)
+    )
+
+    for exp, protein, treat in zip(
+        df_merge["exp"], df_merge["protein"], df_merge["treat"]
+    ):
+        assemble = treat2assemble(treat)
+        chrom = cfg[assemble]["chrom"]
+        start = cfg[assemble]["start"]
+        end = cfg[assemble]["end"]
+        chrom_size = cfg[assemble]["length"]
+
+        treat_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
+        control_bw = (
+            cfg["data_dir"]
+            / "result"
+            / "bw"
+            / f"{'_'.join(map_to_wild_type_merge(exp, protein, treat))}.bw"
+        )
+        if not control_bw.exists() or not treat_bw.exists():
+            continue
+
+        diff = treat2diff(treat)
+        diff_up_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{diff}.up.bw"
+        diff_down_bw = (
+            cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{diff}.down.bw"
+        )
+
+        starts, ends, diff_values = substract_bigwig(
+            treat_bw, control_bw, chrom, start, end
+        )
+
+        write_bigwig(
+            chrom, chrom_size, starts, ends, np.maximum(diff_values, 0.0), diff_up_bw
+        )
+        write_bigwig(
+            chrom, chrom_size, starts, ends, -np.minimum(diff_values, 0.0), diff_down_bw
+        )
