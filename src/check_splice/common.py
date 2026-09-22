@@ -519,7 +519,7 @@ def write_bigwig(
         starts = np.append(starts, [0, 1])
         ends = np.append(ends, [1, 2])
         values = np.append(values, [0, 0])
-    assert values.min() >= 0, "negative value detected"
+
     with pyBigWig.open(os.fspath(bigwig_file), "w") as bw:
         bw.addHeader([(chrom, chrom_size)])
         bw.addEntries(

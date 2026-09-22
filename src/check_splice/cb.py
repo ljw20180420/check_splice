@@ -3,15 +3,13 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import oxbow as ox
+import pandas as pd
 import pyBigWig
 from coolbox.api import *
 from dna_features_viewer import GraphicFeature, GraphicRecord
 from dna_features_viewer.compute_features_levels import compute_features_levels
 
-from .common import (
-    get_cpcdh_intron,
-    read_bedpe,
-)
+from .common import read_bedpe
 from .utils import get_merge_bam, map_to_wild_type_merge, treat2assemble, treat2diff
 
 
@@ -76,7 +74,6 @@ def draw_link(
 
     fig = frame.plot(chrom, start, end)
     fig.savefig(os.fspath(out_f))
-    plt.close(fig)
 
 
 def draw_links(
@@ -145,8 +142,7 @@ def draw_pre_exon(
     title: str,
     control_f: os.PathLike,
     treat_f: os.PathLike,
-    diff_up_f: os.PathLike,
-    diff_down_f: os.PathLike,
+    diff_f: os.PathLike,
     out_f: os.PathLike,
 ) -> os.PathLike:
     chrom = cfg[assemble][cluster]["chrom"]
@@ -167,7 +163,7 @@ def draw_pre_exon(
 
     height = 1
     frame = (
-        Frame(width=18)
+        Frame(width=18, margins={"left": 0.1, "right": 0.92, "bottom": 0, "top": 1})
         + XAxis(name=assemble)
         + BigWig(
             os.fspath(control_f),
@@ -200,35 +196,20 @@ def draw_pre_exon(
             title=cluster,
         )
         + BigWig(
-            os.fspath(diff_up_f),
-            min_value=0,
+            os.fspath(diff_f),
+            min_value=-yup,
             max_value=yup,
             threshold=0,
             threshold_color=cfg["color"]["INCREASE"],
+            color=cfg["color"]["DECREASE"],
             height=height,
-            title="increase",
-        )
-        + BED(
-            os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
-            display="collapsed",
-            labels=False,
-            title=cluster,
-        )
-        + BigWig(
-            os.fspath(diff_down_f),
-            min_value=0,
-            max_value=yup,
-            threshold=0,
-            threshold_color=cfg["color"]["DECREASE"],
-            height=height,
-            title="decrease",
-            orientation="inverted",
+            title="diff",
+            spine=0.5,
         )
         + FrameTitle(title)
     )
     fig = frame.plot(chrom, start, end)
     fig.savefig(os.fspath(out_f))
-    plt.close(fig)
 
 
 def draw_pre_exons(cfg: dict, cluster: str):
@@ -245,17 +226,11 @@ def draw_pre_exons(cfg: dict, cluster: str):
         control_f = (
             cfg["data_dir"] / "result" / "bw" / f"{exp}_{wt_protein}_{control}.bw"
         )
-        diff_up_f = (
+        diff_f = (
             cfg["data_dir"]
             / "result"
             / "bw"
-            / f"{exp}_{protein}_{treat2diff(treat)}.up.bw"
-        )
-        diff_down_f = (
-            cfg["data_dir"]
-            / "result"
-            / "bw"
-            / f"{exp}_{protein}_{treat2diff(treat)}.down.bw"
+            / f"{exp}_{protein}_{treat2diff(treat)}.bw"
         )
 
         (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
@@ -276,8 +251,7 @@ def draw_pre_exons(cfg: dict, cluster: str):
             title=f"{assemble}_{exp}_{protein}_{cluster}",
             control_f=control_f,
             treat_f=treat_f,
-            diff_up_f=diff_up_f,
-            diff_down_f=diff_down_f,
+            diff_f=diff_f,
             out_f=pre_exon_file,
         )
 
@@ -376,7 +350,6 @@ def draw_read(
     )
     fig = frame.plot(chrom, start, end)
     fig.savefig(os.fspath(out_f))
-    plt.close(fig)
 
 
 def draw_reads(cfg: dict):
@@ -406,7 +379,8 @@ def draw_reads(cfg: dict):
 
         (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
         df_se = (
-            get_cpcdh_intron(cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv")
+            pd
+            .read_csv(cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv", header=0)
             .melt(
                 id_vars=["chrom", "name"],
                 value_vars=["start", "end"],

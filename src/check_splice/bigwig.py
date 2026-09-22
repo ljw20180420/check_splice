@@ -75,18 +75,10 @@ def construct_diff_bw(cfg: dict) -> None:
             continue
 
         diff = treat2diff(treat)
-        diff_up_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{diff}.up.bw"
-        diff_down_bw = (
-            cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{diff}.down.bw"
-        )
+        diff_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{diff}.bw"
 
         starts, ends, diff_values = substract_bigwig(
             treat_bw, control_bw, chrom, start, end
         )
 
-        write_bigwig(
-            chrom, chrom_size, starts, ends, np.maximum(diff_values, 0.0), diff_up_bw
-        )
-        write_bigwig(
-            chrom, chrom_size, starts, ends, -np.minimum(diff_values, 0.0), diff_down_bw
-        )
+        write_bigwig(chrom, chrom_size, starts, ends, diff_values, diff_bw)
