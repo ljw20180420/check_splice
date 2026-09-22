@@ -243,11 +243,9 @@ def pairs_to_bedpe(cfg: dict) -> None:
                     "chrom1",
                     "start1",
                     "end1",
-                    "strand1",
                     "chrom2",
                     "start2",
                     "end2",
-                    "strand2",
                 ],
                 as_index=False,
             )
@@ -269,8 +267,6 @@ def pairs_to_bedpe(cfg: dict) -> None:
                     "end2",
                     "name",
                     "score",
-                    "strand1",
-                    "strand2",
                 ]
             ]
         )
@@ -287,25 +283,38 @@ def pairs_to_bedpe(cfg: dict) -> None:
                 ],
             )
 
-        bedpe_file = (
+        df["strand1"] = "*"
+        df["strand1"] = df["strand1"].where(
+            (df["donor"] != "GT") | (df["acceptor"] != "AG"), "+"
+        )
+        df["strand1"] = df["strand1"].where(
+            (df["donor"] != "CT") | (df["acceptor"] != "AC"), "-"
+        )
+        df["strand2"] = df["strand1"]
+
+        df[
+            [
+                "chrom1",
+                "start1",
+                "end1",
+                "chrom2",
+                "start2",
+                "end2",
+                "name",
+                "score",
+                "strand1",
+                "strand2",
+            ]
+        ].to_csv(
             cfg["data_dir"]
             / "result"
             / "hic"
             / "bedpe"
-            / pairs_file.with_suffix(".bedpe").name
+            / pairs_file.with_suffix(".bedpe").name,
+            sep="\t",
+            header=False,
+            index=False,
         )
-
-        for filter, suffix in [
-            ("donor == 'GT' and acceptor == 'AG'", ".f.bedpe"),
-            ("donor == 'CT' and acceptor == 'AC'", ".r.bedpe"),
-            (
-                "(donor != 'GT' or acceptor != 'AG') and (donor != 'CT' or acceptor != 'AC')",
-                ".o.bedpe",
-            ),
-        ]:
-            df.query(filter).drop(columns=["donor", "acceptor"]).to_csv(
-                bedpe_file.with_suffix(suffix), sep="\t", header=False, index=False
-            )
 
 
 def diff_bedpe(cfg: dict) -> None:
@@ -316,37 +325,36 @@ def diff_bedpe(cfg: dict) -> None:
         df_merge["exp"], df_merge["protein"], df_merge["treat"]
     ):
         diff = treat2diff(treat)
-        for orientation in ["f", "r"]:
-            treat_file = (
-                cfg["data_dir"]
-                / "result"
-                / "hic"
-                / "bedpe"
-                / f"{exp}_{protein}_{treat}.{orientation}.bedpe"
-            )
-            control_file = (
-                cfg["data_dir"]
-                / "result"
-                / "hic"
-                / "bedpe"
-                / f"{'_'.join(map_to_wild_type_merge(exp, protein, treat))}.{orientation}.bedpe"
-            )
+        treat_file = (
+            cfg["data_dir"]
+            / "result"
+            / "hic"
+            / "bedpe"
+            / f"{exp}_{protein}_{treat}.bedpe"
+        )
+        control_file = (
+            cfg["data_dir"]
+            / "result"
+            / "hic"
+            / "bedpe"
+            / f"{'_'.join(map_to_wild_type_merge(exp, protein, treat))}.bedpe"
+        )
 
-            df = substract_bedpe(treat_file, control_file)
+        df = substract_bedpe(treat_file, control_file)
 
-            for filter, direction in [("score > 0", "up"), ("score < 0", "down")]:
-                df.query(filter).assign(score=lambda df: df["score"].abs()).to_csv(
-                    (
-                        cfg["data_dir"]
-                        / "result"
-                        / "hic"
-                        / "bedpe"
-                        / f"{exp}_{protein}_{diff}.{direction}.{orientation}.bedpe"
-                    ),
-                    sep="\t",
-                    index=False,
-                    header=False,
-                )
+        for filter, direction in [("score > 0", "up"), ("score < 0", "down")]:
+            df.query(filter).assign(score=lambda df: df["score"].abs()).to_csv(
+                (
+                    cfg["data_dir"]
+                    / "result"
+                    / "hic"
+                    / "bedpe"
+                    / f"{exp}_{protein}_{diff}.{direction}.bedpe"
+                ),
+                sep="\t",
+                index=False,
+                header=False,
+            )
 
 
 def sum_bedpe(cfg: dict) -> None:
@@ -358,32 +366,26 @@ def sum_bedpe(cfg: dict) -> None:
         df_merge_slice = df_merge.query("exp == @exp and treat == @treat").reset_index(
             drop=True
         )
-        for orientation in ["f", "r"]:
-            bedpe_files = (
-                f"{exp}_" + df_merge_slice["protein"] + f"_{treat}.{orientation}.bedpe"
-            )
-            total_counts = [
-                select_total_count(exp, protein, treat)
-                for protein in df_merge_slice["protein"]
-            ]
-            df_sum = summation_bedpe(
-                [
-                    cfg["data_dir"] / "result" / "hic" / "bedpe" / bedpe_file
-                    for bedpe_file in bedpe_files
-                ],
-                total_counts,
-            )
 
-            df_sum.to_csv(
-                cfg["data_dir"]
-                / "result"
-                / "hic"
-                / "bedpe"
-                / f"{exp}_merge_{treat}.{orientation}.bedpe",
-                sep="\t",
-                index=False,
-                header=False,
-            )
+        bedpe_files = f"{exp}_" + df_merge_slice["protein"] + f"_{treat}.bedpe"
+        total_counts = [
+            select_total_count(exp, protein, treat)
+            for protein in df_merge_slice["protein"]
+        ]
+        df_sum = summation_bedpe(
+            [
+                cfg["data_dir"] / "result" / "hic" / "bedpe" / bedpe_file
+                for bedpe_file in bedpe_files
+            ],
+            total_counts,
+        )
+
+        df_sum.to_csv(
+            cfg["data_dir"] / "result" / "hic" / "bedpe" / f"{exp}_merge_{treat}.bedpe",
+            sep="\t",
+            index=False,
+            header=False,
+        )
 
 
 def filter_non_cpcdh_junction(cfg: dict) -> None:
@@ -402,15 +404,47 @@ def filter_non_cpcdh_junction(cfg: dict) -> None:
             drop=True
         )
         for protein in ["merge"] + df_merge_slice["protein"].tolist():
-            for orientation in ["f", "r"]:
-                df = pd.read_csv(
-                    cfg["data_dir"]
-                    / "result"
-                    / "hic"
-                    / "bedpe"
-                    / f"{exp}_{protein}_{treat}.{orientation}.bedpe",
-                    sep="\t",
-                    names=[
+            df = pd.read_csv(
+                cfg["data_dir"]
+                / "result"
+                / "hic"
+                / "bedpe"
+                / f"{exp}_{protein}_{treat}.bedpe",
+                sep="\t",
+                names=[
+                    "chrom1",
+                    "start1",
+                    "end1",
+                    "chrom2",
+                    "start2",
+                    "end2",
+                    "name",
+                    "score",
+                    "strand1",
+                    "strand2",
+                ],
+            )
+
+            df = (
+                df
+                .assign(**{
+                    name: lambda df, start=start, end=end: (
+                        (df["start1"] == start) & (df["start2"] == end)
+                    )
+                    for start, end, name in zip(
+                        df_intron["start"],
+                        df_intron["end"],
+                        df_intron["name"],
+                    )
+                })
+                .assign(
+                    cpcdh=lambda df, df_intron=df_intron: df[
+                        df_intron["name"].tolist()
+                    ].any(axis=1)
+                )
+                .query("cpcdh")
+                .reset_index(drop=True)[
+                    [
                         "chrom1",
                         "start1",
                         "end1",
@@ -421,51 +455,18 @@ def filter_non_cpcdh_junction(cfg: dict) -> None:
                         "score",
                         "strand1",
                         "strand2",
-                    ],
-                )
-
-                df = (
-                    df
-                    .assign(**{
-                        name: lambda df, start=start, end=end: (
-                            (df["start1"] == start) & (df["start2"] == end)
-                        )
-                        for start, end, name in zip(
-                            df_intron["start"],
-                            df_intron["end"],
-                            df_intron["name"],
-                        )
-                    })
-                    .assign(
-                        cpcdh=lambda df, df_intron=df_intron: df[
-                            df_intron["name"].tolist()
-                        ].any(axis=1)
-                    )
-                    .query("cpcdh")
-                    .reset_index(drop=True)[
-                        [
-                            "chrom1",
-                            "start1",
-                            "end1",
-                            "chrom2",
-                            "start2",
-                            "end2",
-                            "name",
-                            "score",
-                            "strand1",
-                            "strand2",
-                        ]
                     ]
-                )
+                ]
+            )
 
-                df.to_csv(
-                    cfg["data_dir"]
-                    / "result"
-                    / "hic"
-                    / "bedpe"
-                    / "cpcdh"
-                    / f"{exp}_{protein}_{treat}.{orientation}.bedpe",
-                    sep="\t",
-                    index=False,
-                    header=False,
-                )
+            df.to_csv(
+                cfg["data_dir"]
+                / "result"
+                / "hic"
+                / "bedpe"
+                / "cpcdh"
+                / f"{exp}_{protein}_{treat}.bedpe",
+                sep="\t",
+                index=False,
+                header=False,
+            )

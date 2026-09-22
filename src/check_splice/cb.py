@@ -1,5 +1,6 @@
 import os
 
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import oxbow as ox
@@ -9,7 +10,7 @@ from coolbox.api import *
 from dna_features_viewer import GraphicFeature, GraphicRecord
 from dna_features_viewer.compute_features_levels import compute_features_levels
 
-from .common import read_bedpe
+from .common import draw_color_bar, read_bedpe
 from .utils import get_merge_bam, map_to_wild_type_merge, treat2assemble, treat2diff
 
 
@@ -21,6 +22,7 @@ def draw_link(
     control_f: os.PathLike,
     treat_f: os.PathLike,
     out_f: os.PathLike,
+    bar_f: os.PathLike,
 ):
     chrom = cfg[assemble][cluster]["chrom"]
     start = cfg[assemble][cluster]["start"]
@@ -28,12 +30,17 @@ def draw_link(
 
     max_score = 0
     for bedpe_file in [control_f, treat_f]:
-        df_bedpe = read_bedpe(bedpe_file)
+        df_bedpe = (
+            read_bedpe(bedpe_file)
+            .query("start1 >= @start and end2 <= @end")
+            .reset_index(drop=True)
+        )
         max_score = max(max_score, float(df_bedpe["score"].max()))
 
     diameter_to_height = f"0.5 * max_height * diameter / ({end} - {start})"
     height = 1.5
-    cmap = "gray"
+
+    cmap = "truncated_gray_r"
     frame = (
         Frame(width=18)
         + XAxis(name=assemble)
@@ -75,11 +82,25 @@ def draw_link(
     fig = frame.plot(chrom, start, end)
     fig.savefig(os.fspath(out_f))
 
+    draw_color_bar(
+        cmap=cmap,
+        vmin=0,
+        vmax=max_score,
+        label="RPM",
+        outfile=os.fspath(bar_f),
+    )
+
 
 def draw_links(
     cfg: dict,
     cluster: str,
 ):
+    plt.colormaps.register(
+        name="truncated_gray_r",
+        cmap=mcolors.LinearSegmentedColormap.from_list(
+            "truncated_gray_r", plt.colormaps["gray_r"](np.linspace(0.15, 1.0, 256))
+        ),
+    )
     df_merge = (
         get_merge_bam(cfg).query("treat.str.endswith('treat')").reset_index(drop=True)
     )
@@ -91,23 +112,33 @@ def draw_links(
             drop=True
         )
         for protein in ["merge"] + df_merge_slice["protein"].tolist():
-            treat_f = (
+            treat_c = (
                 cfg["data_dir"]
                 / "result"
                 / "hic"
                 / "bedpe"
                 / "cpcdh"
-                / f"{exp}_{protein}_{treat}.f.bedpe"
+                / f"{exp}_{protein}_{treat}.bedpe"
             )
+            treat_f = treat_c.with_suffix(".f.bedpe")
+            read_bedpe(treat_c).query("strand1 == '+' and strand2 == '+'").reset_index(
+                drop=True
+            ).to_csv(treat_f, sep="\t", index=False, header=False)
 
             _, wt_protein, control = map_to_wild_type_merge(exp, protein, treat)
-            control_f = (
+            control_c = (
                 cfg["data_dir"]
                 / "result"
                 / "hic"
                 / "bedpe"
                 / "cpcdh"
-                / f"{exp}_{wt_protein}_{control}.f.bedpe"
+                / f"{exp}_{wt_protein}_{control}.bedpe"
+            )
+            control_f = control_c.with_suffix(".f.bedpe")
+            read_bedpe(control_c).query(
+                "strand1 == '+' and strand2 == '+'"
+            ).reset_index(drop=True).to_csv(
+                control_f, sep="\t", index=False, header=False
             )
 
             (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(
@@ -129,9 +160,11 @@ def draw_links(
                 control_f=control_f,
                 treat_f=treat_f,
                 out_f=link_file,
+                bar_f=link_file.with_suffix(".colorbar.pdf"),
             )
 
             yield link_file
+            yield link_file.with_suffix(".colorbar.pdf")
 
 
 def draw_pre_exon(

@@ -3,6 +3,9 @@ import re
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+import matplotlib.cm as cm
+import matplotlib.colors as colors
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pyBigWig
@@ -654,3 +657,16 @@ def merge_pdf(
 
     for pdf_file in pdf_files:
         pdf_file.unlink()
+
+
+def draw_color_bar(
+    cmap: str, vmin: float, vmax: float, label: str, outfile: os.PathLike
+) -> None:
+    norm = colors.Normalize(vmin=vmin, vmax=vmax)
+    mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
+
+    fig, ax = plt.subplots(figsize=(6, 1))
+    fig.colorbar(mappable, cax=ax, orientation="horizontal", label=label)
+    fig.tight_layout()
+    fig.savefig(os.fspath(outfile))
+    plt.close(fig)

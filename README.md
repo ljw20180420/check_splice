@@ -1,7 +1,5 @@
 - continue plotly
 - rsync data
-- add color bar for links
-- use a single coolbox track to draw both up and down by threshold
 
 - 找一个比plotly更加强大的库（支持click）
 - 甚至类似可交互的coolbox
