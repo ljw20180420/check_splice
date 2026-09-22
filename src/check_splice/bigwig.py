@@ -36,45 +36,18 @@ def construct_artifact_bw(cfg: dict, assemble: str) -> None:
                 end=lambda df: df["start"] + 1,
                 value=lambda df: df["splice %"].fillna(0.0),
             )[["start", "end", "value"]]
+            .query("value > 0")
             .sort_values(by=["start"], ignore_index=True)
         )
 
-        df_pv = (
-            pd
-            .concat(
-                [
-                    pd.DataFrame({
-                        "start": [
-                            cfg[assemble]["start"],
-                            df_pv["end"].to_list()[-1],
-                        ],
-                        "end": [
-                            df_pv["start"].to_list()[0],
-                            cfg[assemble]["end"],
-                        ],
-                        "value": 0.0,
-                    }),
-                    df_pv,
-                    pd.DataFrame({
-                        "start": df_pv["end"].to_list()[:-1],
-                        "end": df_pv["start"].to_list()[1:],
-                        "value": 0.0,
-                    }),
-                ],
-                axis=0,
-            )
-            .assign(chrom=cfg[assemble]["chrom"])
-            .sort_values(by=["start"], ignore_index=True)
+        write_bigwig(
+            chrom=cfg[assemble]["chrom"],
+            chrom_size=cfg[assemble]["length"],
+            starts=df_pv["start"].to_numpy(),
+            ends=df_pv["end"].to_numpy(),
+            values=df_pv["value"].to_numpy(),
+            bigwig_file=bw_file,
         )
-
-        with pyBigWig.open(os.fspath(bw_file), "w") as bw:
-            bw.addHeader([(cfg[assemble]["chrom"], cfg[assemble]["length"])])
-            bw.addEntries(
-                df_pv["chrom"].to_list(),
-                df_pv["start"].to_list(),
-                ends=df_pv["end"].to_list(),
-                values=df_pv["value"].to_list(),
-            )
 
 
 def construct_diff_bw(cfg: dict) -> None:

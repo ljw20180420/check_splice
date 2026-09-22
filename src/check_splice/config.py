@@ -3,7 +3,6 @@ from pathlib import Path
 
 def pcdh():
     return {
-        "length_ratio_thresh": 1e-5,
         "read_length": 150,
         "size_before_first": 3000,
         "color": {

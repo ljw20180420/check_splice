@@ -44,12 +44,18 @@ def get_merge_bam(cfg: dict) -> pd.DataFrame:
         treats.append(treat)
         files.append(os.fspath(cfg["data_dir"] / "bam" / "merge" / bamfile))
 
-    return pd.DataFrame({
-        "exp": exps,
-        "protein": proteins,
-        "treat": treats,
-        "file": files,
-    })
+    return (
+        pd
+        .DataFrame({
+            "exp": exps,
+            "protein": proteins,
+            "treat": treats,
+            "file": files,
+        })
+        .assign(assemble=lambda df: df["treat"].map(treat2assemble))
+        .sort_values(by=["assemble", "exp", "protein", "treat"], ignore_index=True)
+        .drop(columns=["assemble"])
+    )
 
 
 def clone2assemble(clone: str) -> str:

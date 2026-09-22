@@ -500,7 +500,11 @@ def substract_bigwig(
             values=diff_values,
         )
 
-    return starts, ends, diff_values
+    df = pd.DataFrame({"start": starts, "end": ends, "diff_value": diff_values}).query(
+        "diff_value != 0"
+    )
+
+    return df["start"].to_numpy(), df["end"].to_numpy(), df["diff_value"].to_numpy()
 
 
 def write_bigwig(
@@ -511,6 +515,10 @@ def write_bigwig(
     values: np.ndarray,
     bigwig_file: os.PathLike,
 ):
+    if len(starts) == 0:
+        starts = np.append(starts, [0, 1])
+        ends = np.append(ends, [1, 2])
+        values = np.append(values, [0, 0])
     assert values.min() >= 0, "negative value detected"
     with pyBigWig.open(os.fspath(bigwig_file), "w") as bw:
         bw.addHeader([(chrom, chrom_size)])

@@ -191,8 +191,19 @@ common.merge_pdf(
 )
 
 # %%
-from check_splice import cb, config
+from check_splice import cb, common, config
 
 cfg = config.pcdh()
-cb.draw_reads_all(cfg, "hg19")
-cb.draw_reads_all(cfg, "mm10")
+common.merge_pdf(
+    cb.draw_pre_exons(cfg, cluster="alpha"),
+    cfg["data_dir"] / "result" / "hic" / "draw" / "pre_exons.pdf",
+)
+
+# %%
+from check_splice import cb, common, config
+
+cfg = config.pcdh()
+common.merge_pdf(
+    cb.draw_reads(cfg),
+    cfg["data_dir"] / "result" / "hic" / "draw" / "reads.pdf",
+)

@@ -12,15 +12,13 @@ from .common import (
     get_cpcdh_intron,
     read_bedpe,
 )
-from .utils import get_merge_bam, map_to_wild_type_merge, treat2assemble
+from .utils import get_merge_bam, map_to_wild_type_merge, treat2assemble, treat2diff
 
 
 def draw_link(
     cfg: dict,
     assemble: str,
     cluster: str,
-    treat: str,
-    control: str,
     title: str,
     control_f: os.PathLike,
     treat_f: os.PathLike,
@@ -49,7 +47,7 @@ def draw_link(
             vmax=max_score,
             diameter_to_height=diameter_to_height,
             height=height,
-            title=control,
+            title="control",
         )
         + BED(
             os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
@@ -65,7 +63,7 @@ def draw_link(
             vmax=max_score,
             diameter_to_height=diameter_to_height,
             height=height,
-            title=treat,
+            title="treat",
         )
         + BED(
             os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
@@ -115,9 +113,6 @@ def draw_links(
                 / f"{exp}_{wt_protein}_{control}.f.bedpe"
             )
 
-            if not control_f.exists() or not treat_f.exists():
-                continue
-
             (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(
                 parents=True, exist_ok=True
             )
@@ -133,8 +128,6 @@ def draw_links(
                 cfg=cfg,
                 assemble=assemble,
                 cluster=cluster,
-                treat=treat,
-                control=control,
                 title=f"{assemble}_{exp}_{protein}_{cluster}",
                 control_f=control_f,
                 treat_f=treat_f,
@@ -144,36 +137,24 @@ def draw_links(
             yield link_file
 
 
-def draw_pre_exons(
+def draw_pre_exon(
     cfg: dict,
-    exp: str,
-    protein: str,
-    cluster: str,
     assemble: str,
+    cluster: str,
+    protein: str,
+    title: str,
+    control_f: os.PathLike,
+    treat_f: os.PathLike,
+    diff_up_f: os.PathLike,
+    diff_down_f: os.PathLike,
+    out_f: os.PathLike,
 ) -> os.PathLike:
-    control = "control" if assemble == "hg19" else "mmcontrol"
-    if exp != "clip":
-        control_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{control}.bw"
-    else:
-        control_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_WT_{control}.bw"
-
-    treat = "delta" if exp != "clip" else "tag"
-    if assemble == "mm10":
-        treat = f"mm{treat}"
-
-    treat_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
-
-    if not control_bw.exists() or not treat_bw.exists():
-        return None
-
-    (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
-
     chrom = cfg[assemble][cluster]["chrom"]
     start = cfg[assemble][cluster]["start"]
     end = cfg[assemble][cluster]["end"]
 
     max_heights = []
-    for bwfile in [control_bw, treat_bw]:
+    for bwfile in [control_f, treat_f]:
         with pyBigWig.open(os.fspath(bwfile)) as bw:
             max_height = bw.stats(chrom, start, end, type="max")[0]
             if max_height is not None:
@@ -189,10 +170,11 @@ def draw_pre_exons(
         Frame(width=18)
         + XAxis(name=assemble)
         + BigWig(
-            os.fspath(control_bw),
+            os.fspath(control_f),
             min_value=0,
             max_value=yup,
-            color=cfg["color"]["WT"],
+            threshold=0,
+            threshold_color=cfg["color"]["WT"],
             height=height,
             title="control",
         )
@@ -203,12 +185,13 @@ def draw_pre_exons(
             title=cluster,
         )
         + BigWig(
-            os.fspath(treat_bw),
+            os.fspath(treat_f),
             min_value=0,
             max_value=yup,
-            color=cfg["color"][protein],
+            threshold=0,
+            threshold_color=cfg["color"][protein],
             height=height,
-            title=treat,
+            title="treat",
         )
         + BED(
             os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
@@ -216,20 +199,89 @@ def draw_pre_exons(
             labels=False,
             title=cluster,
         )
-        + FrameTitle(protein)
-    )
-    pre_exon_file = (
-        cfg["data_dir"]
-        / "result"
-        / "hic"
-        / "draw"
-        / f"{assemble}_{exp}_{protein}_{cluster}_pre_exon.pdf"
+        + BigWig(
+            os.fspath(diff_up_f),
+            min_value=0,
+            max_value=yup,
+            threshold=0,
+            threshold_color=cfg["color"]["INCREASE"],
+            height=height,
+            title="increase",
+        )
+        + BED(
+            os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
+            display="collapsed",
+            labels=False,
+            title=cluster,
+        )
+        + BigWig(
+            os.fspath(diff_down_f),
+            min_value=0,
+            max_value=yup,
+            threshold=0,
+            threshold_color=cfg["color"]["DECREASE"],
+            height=height,
+            title="decrease",
+            orientation="inverted",
+        )
+        + FrameTitle(title)
     )
     fig = frame.plot(chrom, start, end)
-    fig.savefig(os.fspath(pre_exon_file))
+    fig.savefig(os.fspath(out_f))
     plt.close(fig)
 
-    return pre_exon_file
+
+def draw_pre_exons(cfg: dict, cluster: str):
+    df_merge = (
+        get_merge_bam(cfg).query("treat.str.endswith('treat')").reset_index(drop=True)
+    )
+    for exp, protein, treat in (
+        df_merge[["exp", "protein", "treat"]].drop_duplicates().itertuples(index=False)
+    ):
+        assemble = treat2assemble(treat)
+
+        treat_f = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
+        _, wt_protein, control = map_to_wild_type_merge(exp, protein, treat)
+        control_f = (
+            cfg["data_dir"] / "result" / "bw" / f"{exp}_{wt_protein}_{control}.bw"
+        )
+        diff_up_f = (
+            cfg["data_dir"]
+            / "result"
+            / "bw"
+            / f"{exp}_{protein}_{treat2diff(treat)}.up.bw"
+        )
+        diff_down_f = (
+            cfg["data_dir"]
+            / "result"
+            / "bw"
+            / f"{exp}_{protein}_{treat2diff(treat)}.down.bw"
+        )
+
+        (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
+
+        pre_exon_file = (
+            cfg["data_dir"]
+            / "result"
+            / "hic"
+            / "draw"
+            / f"{assemble}_{exp}_{protein}_{cluster}_pre_exon.pdf"
+        )
+
+        draw_pre_exon(
+            cfg=cfg,
+            assemble=assemble,
+            cluster=cluster,
+            protein=protein,
+            title=f"{assemble}_{exp}_{protein}_{cluster}",
+            control_f=control_f,
+            treat_f=treat_f,
+            diff_up_f=diff_up_f,
+            diff_down_f=diff_down_f,
+            out_f=pre_exon_file,
+        )
+
+        yield pre_exon_file
 
 
 def estimate_height(bam_file: os.PathLike, chrom: str, start: int, end: int) -> float:
@@ -261,144 +313,131 @@ def estimate_height(bam_file: os.PathLike, chrom: str, start: int, end: int) -> 
     return calculated_height
 
 
-def draw_reads(
+def draw_read(
     cfg: dict,
-    exp: str,
-    protein: str,
     assemble: str,
+    pos: int,
+    protein: str,
+    exon: str,
+    se: str,
+    title: str,
+    control_f: os.PathLike,
+    treat_f: os.PathLike,
+    out_f: os.PathLike,
 ):
-    control = "control" if assemble == "hg19" else "mmcontrol"
-    if exp != "clip":
-        control_f = (
-            cfg["data_dir"]
-            / "bam"
-            / "merge"
-            / "precursor"
-            / f"{exp}_{protein}_{control}.f.bam"
+    chrom = cfg[assemble]["chrom"]
+    start = pos - cfg["read_length"]
+    end = pos + cfg["read_length"]
+    frame = (
+        XAxis(name=assemble)
+        + BAM(
+            os.fspath(control_f.with_suffix(".f.bam")),
+            length_ratio_thresh=0,
+            color=cfg["color"]["WT"],
+            height=estimate_height(control_f.with_suffix(".f.bam"), chrom, start, end),
+            title="control",
         )
-        control_r = (
-            cfg["data_dir"]
-            / "bam"
-            / "merge"
-            / "precursor"
-            / f"{exp}_{protein}_{control}.r.bam"
+        + BED(
+            os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
+            display="collapsed",
+            labels=False,
+            title=f"{exon}:{se}",
         )
-    else:
-        control_f = (
-            cfg["data_dir"]
-            / "bam"
-            / "merge"
-            / "precursor"
-            / f"{exp}_WT_{control}.f.bam"
+        + BAM(
+            os.fspath(control_f.with_suffix(".r.bam")),
+            length_ratio_thresh=0,
+            color=cfg["color"]["WT"],
+            height=estimate_height(control_f.with_suffix(".r.bam"), chrom, start, end),
+            title="control",
+            orientation="inverted",
         )
-        control_r = (
-            cfg["data_dir"]
-            / "bam"
-            / "merge"
-            / "precursor"
-            / f"{exp}_WT_{control}.r.bam"
+        + BAM(
+            os.fspath(treat_f.with_suffix(".f.bam")),
+            length_ratio_thresh=0,
+            color=cfg["color"][protein],
+            height=estimate_height(treat_f.with_suffix(".f.bam"), chrom, start, end),
+            title="treat",
         )
-
-    treat = "delta" if exp != "clip" else "tag"
-    if assemble == "mm10":
-        treat = f"mm{treat}"
-
-    treat_f = (
-        cfg["data_dir"]
-        / "bam"
-        / "merge"
-        / "precursor"
-        / f"{exp}_{protein}_{treat}.f.bam"
+        + BED(
+            os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
+            display="collapsed",
+            labels=False,
+            title=f"{exon}:{se}",
+        )
+        + BAM(
+            os.fspath(treat_f.with_suffix(".r.bam")),
+            length_ratio_thresh=0,
+            color=cfg["color"][protein],
+            height=estimate_height(treat_f.with_suffix(".r.bam"), chrom, start, end),
+            title="treat",
+            orientation="inverted",
+        )
+        + FrameTitle(title)
     )
-    treat_r = (
-        cfg["data_dir"]
-        / "bam"
-        / "merge"
-        / "precursor"
-        / f"{exp}_{protein}_{treat}.r.bam"
-    )
+    fig = frame.plot(chrom, start, end)
+    fig.savefig(os.fspath(out_f))
+    plt.close(fig)
 
-    if (
-        not control_f.exists()
-        or not control_r.exists()
-        or not treat_f.exists()
-        or not treat_r.exists()
+
+def draw_reads(cfg: dict):
+    df_merge = (
+        get_merge_bam(cfg).query("treat.str.endswith('treat')").reset_index(drop=True)
+    )
+    for exp, protein, treat in (
+        df_merge[["exp", "protein", "treat"]].drop_duplicates().itertuples(index=False)
     ):
-        return
+        assemble = treat2assemble(treat)
 
-    (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
-    df_se = (
-        get_cpcdh_intron(cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv")
-        .melt(
-            id_vars=["chrom", "name"],
-            value_vars=["start", "end"],
-            var_name="se",
-            value_name="pos",
-        )
-        .query("name.str.lower().str.startswith('pcdha')")
-        .reset_index(drop=True)
-        .sort_values(by="pos", ignore_index=True)
-    )
-
-    for name, se, pos in zip(df_se["name"], df_se["se"], df_se["pos"]):
-        chrom = cfg[assemble]["chrom"]
-        start = pos - cfg["read_length"]
-        end = pos + cfg["read_length"]
-        frame = (
-            XAxis(name=assemble)
-            + BAM(
-                os.fspath(control_f),
-                length_ratio_thresh=cfg["length_ratio_thresh"],
-                color=cfg["color"]["WT"],
-                height=estimate_height(control_f, chrom, start, end),
-                title="control",
-            )
-            + BED(
-                os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
-                display="collapsed",
-                labels=False,
-                title=f"{name}:{se}",
-            )
-            + BAM(
-                os.fspath(control_r),
-                length_ratio_thresh=cfg["length_ratio_thresh"],
-                color=cfg["color"]["WT"],
-                height=estimate_height(control_r, chrom, start, end),
-                title="control",
-                orientation="inverted",
-            )
-            + BAM(
-                os.fspath(treat_f),
-                length_ratio_thresh=cfg["length_ratio_thresh"],
-                color=cfg["color"][protein],
-                height=estimate_height(treat_f, chrom, start, end),
-                title=treat,
-            )
-            + BED(
-                os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
-                display="collapsed",
-                labels=False,
-                title=f"{name}:{se}",
-            )
-            + BAM(
-                os.fspath(treat_r),
-                length_ratio_thresh=cfg["length_ratio_thresh"],
-                color=cfg["color"][protein],
-                height=estimate_height(treat_r, chrom, start, end),
-                title=treat,
-                orientation="inverted",
-            )
-            + FrameTitle(protein)
-        )
-        link_file = (
+        treat_f = (
             cfg["data_dir"]
-            / "result"
-            / "hic"
-            / "draw"
-            / f"{exp}_{protein}_{name}_{se}_reads.pdf"
+            / "bam"
+            / "merge"
+            / "precursor"
+            / f"{exp}_{protein}_{treat}.bam"
         )
-        fig = frame.plot(chrom, start, end)
-        fig.savefig(os.fspath(link_file))
-        plt.close(fig)
+        _, wt_protein, control = map_to_wild_type_merge(exp, protein, treat)
+        control_f = (
+            cfg["data_dir"]
+            / "bam"
+            / "merge"
+            / "precursor"
+            / f"{exp}_{wt_protein}_{control}.bam"
+        )
 
-        yield link_file
+        (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
+        df_se = (
+            get_cpcdh_intron(cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv")
+            .melt(
+                id_vars=["chrom", "name"],
+                value_vars=["start", "end"],
+                var_name="se",
+                value_name="pos",
+            )
+            .query("name.str.lower().str.startswith('pcdha')")
+            .reset_index(drop=True)
+            .sort_values(by="pos", ignore_index=True)
+        )
+
+        for exon, se, pos in zip(df_se["name"], df_se["se"], df_se["pos"]):
+            read_file = (
+                cfg["data_dir"]
+                / "result"
+                / "hic"
+                / "draw"
+                / f"{exp}_{protein}_{exon}_{se}_reads.pdf"
+            )
+
+            draw_read(
+                cfg=cfg,
+                assemble=assemble,
+                pos=pos,
+                protein=protein,
+                exon=exon,
+                se=se,
+                title=f"{assemble}_{exp}_{protein}_{exon}_{se}",
+                control_f=control_f,
+                treat_f=treat_f,
+                out_f=read_file,
+            )
+
+            yield read_file
