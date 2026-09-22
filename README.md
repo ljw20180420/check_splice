@@ -1,5 +1,4 @@
 - continue plotly
-- rsync data
 
 - 找一个比plotly更加强大的库（支持click）
 - 甚至类似可交互的coolbox

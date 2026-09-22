@@ -151,5 +151,5 @@ star_map_all() {
     done
 }
 
-star_index="/home/ljw/.local/share/genomes/GRCh37/index/star"
-root_dir="/home/ljw/sdc1/hush"
+star_index="${HOME}/.local/share/genomes/GRCh37/index/star"
+root_dir="${HOME}/sdc1/hush"
