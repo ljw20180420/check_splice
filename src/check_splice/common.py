@@ -829,6 +829,8 @@ def pairs2bedpe(
                 "chrom2",
                 "start2",
                 "end2",
+                "strand1",
+                "strand2",
             ],
             as_index=False,
         )
@@ -850,6 +852,8 @@ def pairs2bedpe(
                 "end2",
                 "name",
                 "score",
+                "strand1",
+                "strand2",
             ]
         ]
     )

@@ -124,8 +124,8 @@ def draw_links(
             read_bedpe(treat_c).query("strand1 == '+' and strand2 == '+'").reset_index(
                 drop=True
             ).to_csv(treat_f, sep="\t", index=False, header=False)
-            treat_f.with_suffix(".bedpe.bgz").unlink()
-            treat_f.with_suffix(".bedpe.bgz.px2").unlink()
+            treat_f.with_suffix(".bedpe.bgz").unlink(missing_ok=True)
+            treat_f.with_suffix(".bedpe.bgz.px2").unlink(missing_ok=True)
 
             _, wt_protein, control = map_to_wild_type_merge(exp, protein, treat)
             control_c = (
@@ -142,8 +142,8 @@ def draw_links(
             ).reset_index(drop=True).to_csv(
                 control_f, sep="\t", index=False, header=False
             )
-            control_f.with_suffix(".bedpe.bgz").unlink()
-            control_f.with_suffix(".bedpe.bgz.px2").unlink()
+            control_f.with_suffix(".bedpe.bgz").unlink(missing_ok=True)
+            control_f.with_suffix(".bedpe.bgz.px2").unlink(missing_ok=True)
 
             (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(
                 parents=True, exist_ok=True

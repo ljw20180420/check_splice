@@ -8,7 +8,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.5
 #   kernelspec:
-#     display_name: check-splice (3.13.11.final.0)
+#     display_name: Python 3
 #     language: python
 #     name: python3
 # ---
@@ -22,6 +22,7 @@
 # !index_ribosome
 # !filter_ribosome_all
 # !star_map_all
+
 
 # %%
 from check_splice import common, config, utils
