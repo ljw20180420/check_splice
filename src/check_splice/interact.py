@@ -10,6 +10,7 @@ from .common import (
     donor_acceptor_to_strand,
     get_cpcdh_intron,
     interact2pairs,
+    pairs2bedpe,
     substract_bedpe,
     summation_bedpe,
 )
@@ -266,17 +267,18 @@ def get_interact(cfg: dict) -> None:
 
 
 def interact_to_pairs(cfg: dict) -> None:
+    (cfg["data_dir"] / "result" / "hic" / "pairs").mkdir(parents=True, exist_ok=True)
     df_merge = get_merge_bam(cfg)
     for exp, protein, treat in zip(
         df_merge["exp"], df_merge["protein"], df_merge["treat"]
     ):
         interact2pairs(
-            cfg["data_dir"]
+            interact_file=cfg["data_dir"]
             / "result"
             / "hic"
             / "interact"
             / f"{exp}_{protein}_{treat}.bed",
-            cfg["data_dir"]
+            pairs_file=cfg["data_dir"]
             / "result"
             / "hic"
             / "pairs"
@@ -288,110 +290,22 @@ def pairs_to_bedpe(cfg: dict) -> None:
     shutil.rmtree(cfg["data_dir"] / "result" / "hic" / "bedpe", ignore_errors=True)
     (cfg["data_dir"] / "result" / "hic" / "bedpe").mkdir(parents=True, exist_ok=True)
     select_total_count = SelectTotalCount(cfg)
-    for pairs_file in os.listdir(cfg["data_dir"] / "result" / "hic" / "pairs"):
-        exp, protein, treat = pairs_file.removesuffix(".pairs").split("_")
-        assemble = treat2assemble(treat)
-        total_count = select_total_count(exp, protein, treat)
-
-        pairs_file = cfg["data_dir"] / "result" / "hic" / "pairs" / pairs_file
-
-        df = pd.read_csv(
-            pairs_file,
-            sep="\t",
-            skiprows=1,
-            names=[
-                "readID",
-                "chrom1",
-                "pos1",
-                "chrom2",
-                "pos2",
-                "strand1",
-                "strand2",
-            ],
-        )
-
-        df = (
-            df
-            .rename(
-                columns={
-                    "pos1": "end1",
-                    "pos2": "end2",
-                }
-            )
-            .assign(
-                start1=lambda df: df["end1"] - 1,
-                start2=lambda df: df["end2"] - 1,
-            )
-            .groupby(
-                [
-                    "chrom1",
-                    "start1",
-                    "end1",
-                    "chrom2",
-                    "start2",
-                    "end2",
-                ],
-                as_index=False,
-            )
-            .agg(
-                name=pd.NamedAgg("readID", lambda se: "|".join(se.tolist())),
-                score=pd.NamedAgg("readID", "count"),
-            )
-            .assign(
-                score=lambda df, total_count=total_count: (
-                    df["score"] / total_count * 1_000_000
-                )
-            )[
-                [
-                    "chrom1",
-                    "start1",
-                    "end1",
-                    "chrom2",
-                    "start2",
-                    "end2",
-                    "name",
-                    "score",
-                ]
-            ]
-        )
-
-        with py2bit.open(cfg[assemble]["2bit"]) as tb:
-            df = df.assign(
-                donor=lambda df: [
-                    tb.sequence(chrom1, start1, start1 + 2)
-                    for chrom1, start1 in zip(df["chrom1"], df["start1"])
-                ],
-                acceptor=lambda df: [
-                    tb.sequence(chrom2, start2 - 2, start2)
-                    for chrom2, start2 in zip(df["chrom2"], df["start2"])
-                ],
-            )
-
-        df = df.assign(
-            strand1=lambda df: donor_acceptor_to_strand(df["donor"], df["acceptor"]),
-            strand2=lambda df: df["strand1"],
-        )[
-            [
-                "chrom1",
-                "start1",
-                "end1",
-                "chrom2",
-                "start2",
-                "end2",
-                "name",
-                "score",
-                "strand1",
-                "strand2",
-            ]
-        ].to_csv(
-            cfg["data_dir"]
+    df_merge = get_merge_bam(cfg)
+    for exp, protein, treat in zip(
+        df_merge["exp"], df_merge["protein"], df_merge["treat"]
+    ):
+        pairs2bedpe(
+            pairs_file=cfg["data_dir"]
+            / "result"
+            / "hic"
+            / "pairs"
+            / f"{exp}_{protein}_{treat}.pairs",
+            bedpe_file=cfg["data_dir"]
             / "result"
             / "hic"
             / "bedpe"
-            / pairs_file.with_suffix(".bedpe").name,
-            sep="\t",
-            header=False,
-            index=False,
+            / f"{exp}_{protein}_{treat}.bedpe",
+            total_count=select_total_count(exp, protein, treat),
         )
 
 

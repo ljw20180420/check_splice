@@ -767,7 +767,7 @@ def read_pairs(pairs_file: os.PathLike) -> pd.DataFrame:
     )
 
 
-def interact2pairs(interact_file: os.PathLike, pairs_file: os.PathLike) -> pd.DataFrame:
+def interact2pairs(interact_file: os.PathLike, pairs_file: os.PathLike) -> None:
     df = read_interact(interact_file)
     df = df.assign(
         pos1=lambda df: np.minimum(df["sourceEnd"], df["targetEnd"]) + 1,
@@ -803,3 +803,60 @@ def interact2pairs(interact_file: os.PathLike, pairs_file: os.PathLike) -> pd.Da
     with open(pairs_file, "w") as fd:
         fd.write("## pairs format v1.0\n")
         df.to_csv(fd, sep="\t", header=False, index=False)
+
+
+def pairs2bedpe(
+    pairs_file: os.PathLike, bedpe_file: os.PathLike, total_count: int
+) -> None:
+    df = read_pairs(pairs_file)
+    df = (
+        df
+        .rename(
+            columns={
+                "pos1": "end1",
+                "pos2": "end2",
+            }
+        )
+        .assign(
+            start1=lambda df: df["end1"] - 1,
+            start2=lambda df: df["end2"] - 1,
+        )
+        .groupby(
+            [
+                "chrom1",
+                "start1",
+                "end1",
+                "chrom2",
+                "start2",
+                "end2",
+            ],
+            as_index=False,
+        )
+        .agg(
+            name=pd.NamedAgg("readID", lambda se: "|".join(se.tolist())),
+            score=pd.NamedAgg("readID", "count"),
+        )
+        .assign(
+            score=lambda df, total_count=total_count: (
+                df["score"] / total_count * 1_000_000
+            )
+        )[
+            [
+                "chrom1",
+                "start1",
+                "end1",
+                "chrom2",
+                "start2",
+                "end2",
+                "name",
+                "score",
+            ]
+        ]
+    )
+
+    df.to_csv(
+        bedpe_file,
+        sep="\t",
+        header=False,
+        index=False,
+    )
