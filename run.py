@@ -136,13 +136,13 @@ ply.draw_interact(cfg, "mm10")
 from check_splice import config, interact
 
 cfg = config.pcdh()
-interact.get_pairs(cfg)
+interact.get_interact(cfg)
 
 # %%
 from check_splice import config, interact
 
 cfg = config.pcdh()
-interact.get_interact(cfg)
+interact.interact_to_pairs(cfg)
 
 # %%
 from check_splice import config, interact

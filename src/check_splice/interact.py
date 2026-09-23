@@ -1,10 +1,18 @@
 import os
 import shutil
 
+import numpy as np
 import pandas as pd
 import py2bit
 
-from .common import BlatSplice, get_cpcdh_intron, substract_bedpe, summation_bedpe
+from .common import (
+    BlatSplice,
+    donor_acceptor_to_strand,
+    get_cpcdh_intron,
+    interact2pairs,
+    substract_bedpe,
+    summation_bedpe,
+)
 from .utils import (
     SelectTotalCount,
     clone2assemble,
@@ -14,86 +22,6 @@ from .utils import (
     treat2assemble,
     treat2diff,
 )
-
-
-def get_pairs(cfg: dict) -> None:
-    def splice_pair(ref_blocks: str) -> list:
-        ref_blocks = ref_blocks.split(";")
-        pairs = []
-        for i in range(len(ref_blocks) - 1):
-            block_chrom, block_start, block_end, block_strand = ref_blocks[i].split(":")
-            block_start, block_end = int(block_start), int(block_end)
-            next_block_chrom, next_block_start, next_block_end, next_block_strand = (
-                ref_blocks[i + 1].split(":")
-            )
-            next_block_start, next_block_end = (
-                int(next_block_start),
-                int(next_block_end),
-            )
-            assert block_chrom == next_block_chrom, "inconsistent chrom"
-            chrom1 = block_chrom
-            chrom2 = next_block_chrom
-            if block_start < next_block_start:
-                pos1 = block_end + 1
-                strand1 = block_strand
-                pos2 = next_block_start + 1
-                strand2 = next_block_strand
-            else:
-                pos1 = next_block_end + 1
-                strand1 = next_block_strand
-                pos2 = block_start + 1
-                strand2 = block_strand
-
-            pairs.append(f"{chrom1}:{pos1}:{strand1}:{chrom2}:{pos2}:{strand2}")
-
-        return pairs
-
-    df = (
-        pd
-        .read_feather(cfg["data_dir"] / "result" / "reads.feather")
-        .query("ref_blocks.str.contains(';')")
-        .reset_index(drop=True)
-        .assign(
-            treat=lambda df: df["clone"].map(clone2treat),
-            exp_protein_treat=lambda df: (
-                df["exp"] + "_" + df["protein"] + "_" + df["treat"]
-            ),
-            pair=lambda df: df["ref_blocks"].map(splice_pair),
-        )[["exp_protein_treat", "query_name", "pair"]]
-        .explode("pair", ignore_index=True)
-    )
-
-    df = pd.concat(
-        [
-            df[["exp_protein_treat", "query_name"]].rename(
-                columns={"query_name": "readID"}
-            ),
-            df["pair"]
-            .str.split(":", expand=True)
-            .rename(
-                columns={
-                    0: "chrom1",
-                    1: "pos1",
-                    2: "strand1",
-                    3: "chrom2",
-                    4: "pos2",
-                    5: "strand2",
-                }
-            )[["chrom1", "pos1", "chrom2", "pos2", "strand1", "strand2"]],
-        ],
-        axis=1,
-    )
-
-    (cfg["data_dir"] / "result" / "hic" / "pairs").mkdir(exist_ok=True, parents=True)
-    for exp_protein_treat in df["exp_protein_treat"].unique():
-        with open(
-            cfg["data_dir"] / "result" / "hic" / "pairs" / f"{exp_protein_treat}.pairs",
-            "w",
-        ) as fd:
-            fd.write("## pairs format v1.0\n")
-            df.query("exp_protein_treat == @exp_protein_treat")[
-                ["readID", "chrom1", "pos1", "chrom2", "pos2", "strand1", "strand2"]
-            ].to_csv(fd, sep="\t", header=False, index=False)
 
 
 def get_interact(cfg: dict) -> None:
@@ -146,7 +74,7 @@ def get_interact(cfg: dict) -> None:
             targetStrand = next_ref_block_strand
 
             interact.append(
-                f"{chrom}:{chromStart}:{chromEnd}:{sourceChrom}:{sourceStart}:{sourceEnd}:{sourceStrand}:{targetChrom}:{targetStart}:{targetEnd}:{targetStrand}:{joint_block}"
+                f"{chrom}:{chromStart}:{chromEnd}:{sourceChrom}:{sourceStart}:{sourceEnd}:{sourceStrand}:{targetChrom}:{targetStart}:{targetEnd}:{targetStrand}:{joint_block}:{i}"
             )
 
         return interact
@@ -206,11 +134,20 @@ def get_interact(cfg: dict) -> None:
                     9: "targetEnd",
                     10: "targetStrand",
                     11: "joint_block",
+                    12: "bidx",
                 }
-            ),
+            )
+            .astype({
+                "chromStart": int,
+                "chromEnd": int,
+                "sourceStart": int,
+                "sourceEnd": int,
+                "targetStart": int,
+                "targetEnd": int,
+            }),
         ],
         axis=1,
-    )
+    ).assign(uid=lambda df: df["uid"] + "_" + df["bidx"])
 
     blat_splice = BlatSplice(cfg)
     df_pidents = []
@@ -221,18 +158,23 @@ def get_interact(cfg: dict) -> None:
         blat_input = "\n".join(">" + df_slice["uid"] + "\n" + df_slice["joint_block"])
         blat_result = blat_splice(blat_input, assemble)
         df_pident = blat_result.groupby("qseqid", as_index=False)["pident"].max()
-        df_pidents.append(df_pidents)
-        breakpoint()
+        df_pidents.append(df_pident)
+
+    df = df.merge(
+        pd.concat(df_pidents, ignore_index=True),
+        how="left",
+        left_on="uid",
+        right_on="qseqid",
+        validate="one_to_one",
+    ).assign(
+        pident=lambda df: df["pident"].fillna(0.0),
+    )
 
     df = df.assign(
         color=0,
         value=1.0,
         sourceName=".",
         targetName=".",
-        joint_block_assemble=lambda df: df["joint_block"] + "|" + df["assemble"],
-        pident=lambda df: df["joint_block_assemble"].map(
-            lambda joint_block_assemble: blat_splice(*joint_block_assemble.split("|"))
-        ),
         score=lambda df: 1000 - 10 * df["pident"],
     )[
         [
@@ -254,8 +196,60 @@ def get_interact(cfg: dict) -> None:
             "targetEnd",
             "targetName",
             "targetStrand",
+            "assemble",
         ]
-    ].sort_values(by=["chrom", "chromStart"], ignore_index=True)
+    ].sort_values(by=["chrom", "chromStart", "chromEnd"], ignore_index=True)
+
+    df = df.assign(
+        minEnd=lambda df: np.minimum(df["sourceEnd"], df["targetEnd"]),
+        maxStart=lambda df: np.maximum(df["sourceStart"], df["targetStart"]),
+    )
+
+    tbs = {}
+    with (
+        py2bit.open(cfg["hg19"]["2bit"]) as tbs["hg19"],
+        py2bit.open(cfg["mm10"]["2bit"]) as tbs["mm10"],
+    ):
+        df = df.assign(
+            donor=lambda df: [
+                tbs[assemble].sequence(chrom, minEnd, minEnd + 2)
+                for chrom, minEnd, assemble in zip(
+                    df["chrom"], df["minEnd"], df["assemble"]
+                )
+            ],
+            acceptor=lambda df: [
+                tbs[assemble].sequence(chrom, maxStart - 2, maxStart)
+                for chrom, maxStart, assemble in zip(
+                    df["chrom"], df["maxStart"], df["assemble"]
+                )
+            ],
+        )
+
+    df = df.assign(
+        sourceStrand=lambda df: donor_acceptor_to_strand(df["donor"], df["acceptor"]),
+        targetStrand=lambda df: df["sourceStrand"],
+    )[
+        [
+            "chrom",
+            "chromStart",
+            "chromEnd",
+            "name",
+            "score",
+            "value",
+            "exp",
+            "color",
+            "sourceChrom",
+            "sourceStart",
+            "sourceEnd",
+            "sourceName",
+            "sourceStrand",
+            "targetChrom",
+            "targetStart",
+            "targetEnd",
+            "targetName",
+            "targetStrand",
+        ]
+    ]
 
     (cfg["data_dir"] / "result" / "hic" / "interact").mkdir(exist_ok=True, parents=True)
     for exp_protein_treat in df["exp"].unique():
@@ -268,6 +262,25 @@ def get_interact(cfg: dict) -> None:
             sep="\t",
             header=False,
             index=False,
+        )
+
+
+def interact_to_pairs(cfg: dict) -> None:
+    df_merge = get_merge_bam(cfg)
+    for exp, protein, treat in zip(
+        df_merge["exp"], df_merge["protein"], df_merge["treat"]
+    ):
+        interact2pairs(
+            cfg["data_dir"]
+            / "result"
+            / "hic"
+            / "interact"
+            / f"{exp}_{protein}_{treat}.bed",
+            cfg["data_dir"]
+            / "result"
+            / "hic"
+            / "pairs"
+            / f"{exp}_{protein}_{treat}.pairs",
         )
 
 
@@ -354,16 +367,10 @@ def pairs_to_bedpe(cfg: dict) -> None:
                 ],
             )
 
-        df["strand1"] = "*"
-        df["strand1"] = df["strand1"].where(
-            (df["donor"] != "GT") | (df["acceptor"] != "AG"), "+"
-        )
-        df["strand1"] = df["strand1"].where(
-            (df["donor"] != "CT") | (df["acceptor"] != "AC"), "-"
-        )
-        df["strand2"] = df["strand1"]
-
-        df[
+        df = df.assign(
+            strand1=lambda df: donor_acceptor_to_strand(df["donor"], df["acceptor"]),
+            strand2=lambda df: df["strand1"],
+        )[
             [
                 "chrom1",
                 "start1",

@@ -681,10 +681,15 @@ class BlatSplice:
         self.blat = sh.Command("blat")
 
     def __call__(self, input: str, assemble: str) -> pd.DataFrame:
+        # https://ucsc.crg.eu/FAQ/FAQblat.html for the parameter settings
         result = self.blat(
+            "-out=blast8",
+            "-stepSize=5",
+            "-repMatch=2253",
+            "-minScore=0",
+            "-minIdentity=0",
             self.databases[assemble],
             "stdin",
-            "-out=blast8",
             "stdout",
             _in=input,
         )
@@ -707,3 +712,94 @@ class BlatSplice:
                 "bitscore",
             ],
         )
+
+
+def donor_acceptor_to_strand(donor: pd.Series, acceptor: pd.Series) -> pd.Series:
+    return (
+        pd
+        .Series(data=["."] * len(donor))
+        .where((donor != "GT") | (acceptor != "AG"), "+")
+        .where((donor != "CT") | (acceptor != "AC"), "-")
+    )
+
+
+def read_interact(interact_file: os.PathLike) -> pd.DataFrame:
+    return pd.read_csv(
+        interact_file,
+        sep="\t",
+        names=[
+            "chrom",
+            "chromStart",
+            "chromEnd",
+            "name",
+            "score",
+            "value",
+            "exp",
+            "color",
+            "sourceChrom",
+            "sourceStart",
+            "sourceEnd",
+            "sourceName",
+            "sourceStrand",
+            "targetChrom",
+            "targetStart",
+            "targetEnd",
+            "targetName",
+            "targetStrand",
+        ],
+    )
+
+
+def read_pairs(pairs_file: os.PathLike) -> pd.DataFrame:
+    return pd.read_csv(
+        pairs_file,
+        sep="\t",
+        skiprows=1,
+        names=[
+            "readID",
+            "chrom1",
+            "pos1",
+            "chrom2",
+            "pos2",
+            "strand1",
+            "strand2",
+        ],
+    )
+
+
+def interact2pairs(interact_file: os.PathLike, pairs_file: os.PathLike) -> pd.DataFrame:
+    df = read_interact(interact_file)
+    df = df.assign(
+        pos1=lambda df: np.minimum(df["sourceEnd"], df["targetEnd"]) + 1,
+        pos2=lambda df: np.maximum(df["sourceStart"], df["targetStart"]) + 1,
+        strand1=lambda df: df["sourceStrand"].where(
+            df["sourceStart"] <= df["targetStart"], df["targetStrand"]
+        ),
+        strand2=lambda df: df["targetStrand"].where(
+            df["sourceStart"] <= df["targetStart"], df["sourceStrand"]
+        ),
+        chrom1=lambda df: df["sourceChrom"].where(
+            df["sourceStart"] <= df["targetStart"], df["targetChrom"]
+        ),
+        chrom2=lambda df: df["targetChrom"].where(
+            df["sourceStart"] <= df["targetStart"], df["sourceChrom"]
+        ),
+    ).rename(
+        columns={
+            "name": "readID",
+        }
+    )[
+        [
+            "readID",
+            "chrom1",
+            "pos1",
+            "chrom2",
+            "pos2",
+            "strand1",
+            "strand2",
+        ]
+    ]
+
+    with open(pairs_file, "w") as fd:
+        fd.write("## pairs format v1.0\n")
+        df.to_csv(fd, sep="\t", header=False, index=False)
