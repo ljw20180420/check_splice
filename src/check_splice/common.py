@@ -1,10 +1,9 @@
+import io
 import os
 import re
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-import matplotlib.cm as cm
-import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -12,6 +11,7 @@ import pyBigWig
 import pypdf
 import pysam
 import sh
+from matplotlib import cm, colors
 
 
 def get_bam_read_count(bamfile: os.PathLike) -> int:
@@ -670,3 +670,40 @@ def draw_color_bar(
     fig.tight_layout()
     fig.savefig(os.fspath(outfile))
     plt.close(fig)
+
+
+class BlatSplice:
+    def __init__(self, cfg: dict) -> None:
+        self.databases = {
+            assemble: f"{cfg[assemble]['2bit']}:{cfg[assemble]['chrom']}:{cfg[assemble]['start']}-{cfg[assemble]['end']}"
+            for assemble in ["hg19", "mm10"]
+        }
+        self.blat = sh.Command("blat")
+
+    def __call__(self, input: str, assemble: str) -> pd.DataFrame:
+        result = self.blat(
+            self.databases[assemble],
+            "stdin",
+            "-out=blast8",
+            "stdout",
+            _in=input,
+        )
+
+        return pd.read_csv(
+            io.StringIO(result),
+            sep="\t",
+            names=[
+                "qseqid",
+                "sseqid",
+                "pident",
+                "length",
+                "mismatch",
+                "gapopen",
+                "qstart",
+                "qend",
+                "sstart",
+                "send",
+                "evalue",
+                "bitscore",
+            ],
+        )

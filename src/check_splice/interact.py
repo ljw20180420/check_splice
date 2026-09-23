@@ -4,9 +4,10 @@ import shutil
 import pandas as pd
 import py2bit
 
-from .common import get_cpcdh_intron, substract_bedpe, summation_bedpe
+from .common import BlatSplice, get_cpcdh_intron, substract_bedpe, summation_bedpe
 from .utils import (
     SelectTotalCount,
+    clone2assemble,
     clone2treat,
     get_merge_bam,
     map_to_wild_type_merge,
@@ -21,21 +22,26 @@ def get_pairs(cfg: dict) -> None:
         pairs = []
         for i in range(len(ref_blocks) - 1):
             block_chrom, block_start, block_end, block_strand = ref_blocks[i].split(":")
+            block_start, block_end = int(block_start), int(block_end)
             next_block_chrom, next_block_start, next_block_end, next_block_strand = (
                 ref_blocks[i + 1].split(":")
+            )
+            next_block_start, next_block_end = (
+                int(next_block_start),
+                int(next_block_end),
             )
             assert block_chrom == next_block_chrom, "inconsistent chrom"
             chrom1 = block_chrom
             chrom2 = next_block_chrom
             if block_start < next_block_start:
-                pos1 = int(block_end) + 1
+                pos1 = block_end + 1
                 strand1 = block_strand
-                pos2 = int(next_block_start) + 1
+                pos2 = next_block_start + 1
                 strand2 = next_block_strand
             else:
-                pos1 = int(next_block_end) + 1
+                pos1 = next_block_end + 1
                 strand1 = next_block_strand
-                pos2 = int(block_start) + 1
+                pos2 = block_start + 1
                 strand2 = block_strand
 
             pairs.append(f"{chrom1}:{pos1}:{strand1}:{chrom2}:{pos2}:{strand2}")
@@ -91,30 +97,56 @@ def get_pairs(cfg: dict) -> None:
 
 
 def get_interact(cfg: dict) -> None:
-    def splice_interact(ref_blocks: str) -> list:
+    def parse_blocks(ref_query_blocks: str) -> list:
+        ref_blocks, query_blocks, query = ref_query_blocks.split("|")
         ref_blocks = ref_blocks.split(";")
+        query_blocks = query_blocks.split(";")
         interact = []
         for i in range(len(ref_blocks) - 1):
-            block_chrom, block_start, block_end, block_strand = ref_blocks[i].split(":")
-            next_block_chrom, next_block_start, next_block_end, next_block_strand = (
-                ref_blocks[i + 1].split(":")
+            ref_block_chrom, ref_block_start, ref_block_end, ref_block_strand = (
+                ref_blocks[i].split(":")
             )
-            assert block_chrom == next_block_chrom, "chrom is not consistent"
+            ref_block_start, ref_block_end = int(ref_block_start), int(ref_block_end)
+            (
+                next_ref_block_chrom,
+                next_ref_block_start,
+                next_ref_block_end,
+                next_ref_block_strand,
+            ) = ref_blocks[i + 1].split(":")
+            next_ref_block_start, next_ref_block_end = (
+                int(next_ref_block_start),
+                int(next_ref_block_end),
+            )
+            assert ref_block_chrom == next_ref_block_chrom, "chrom is not consistent"
 
-            chrom = block_chrom
-            chromStart = min(block_start, next_block_start)
-            chromEnd = max(block_end, next_block_end)
-            sourceChrom = block_chrom
-            sourceStart = block_start
-            sourceEnd = block_end
-            sourceStrand = block_strand
-            targetChrom = next_block_chrom
-            targetStart = next_block_start
-            targetEnd = next_block_end
-            targetStrand = next_block_strand
+            query_block_start, query_block_end = query_blocks[i].split(":")
+            query_block_start, query_block_end = (
+                int(query_block_start),
+                int(query_block_end),
+            )
+            next_query_block_start, next_query_block_end = query_blocks[i + 1].split(
+                ":"
+            )
+            next_query_block_start, next_query_block_end = (
+                int(next_query_block_start),
+                int(next_query_block_end),
+            )
+            joint_block = query[query_block_start:next_query_block_end]
+
+            chrom = ref_block_chrom
+            chromStart = min(ref_block_start, next_ref_block_start)
+            chromEnd = max(ref_block_end, next_ref_block_end)
+            sourceChrom = ref_block_chrom
+            sourceStart = ref_block_start
+            sourceEnd = ref_block_end
+            sourceStrand = ref_block_strand
+            targetChrom = next_ref_block_chrom
+            targetStart = next_ref_block_start
+            targetEnd = next_ref_block_end
+            targetStrand = next_ref_block_strand
 
             interact.append(
-                f"{chrom}:{chromStart}:{chromEnd}:{sourceChrom}:{sourceStart}:{sourceEnd}:{sourceStrand}:{targetChrom}:{targetStart}:{targetEnd}:{targetStrand}"
+                f"{chrom}:{chromStart}:{chromEnd}:{sourceChrom}:{sourceStart}:{sourceEnd}:{sourceStrand}:{targetChrom}:{targetStart}:{targetEnd}:{targetStrand}:{joint_block}"
             )
 
         return interact
@@ -126,65 +158,104 @@ def get_interact(cfg: dict) -> None:
         .reset_index(drop=True)
         .assign(
             treat=lambda df: df["clone"].map(clone2treat),
+            assemble=lambda df: df["clone"].map(clone2assemble),
             exp_protein_treat=lambda df: (
                 df["exp"] + "_" + df["protein"] + "_" + df["treat"]
             ),
-            interact=lambda df: df["ref_blocks"].map(splice_interact),
-        )[["exp_protein_treat", "query_name", "interact"]]
-        .explode("interact", ignore_index=True)
+            ref_query_blocks=lambda df: (
+                df["ref_blocks"] + "|" + df["query_blocks"] + "|" + df["query"]
+            ),
+            uid=lambda df: (
+                df["assemble"]
+                + "_"
+                + df["exp"]
+                + "_"
+                + df["protein"]
+                + "_"
+                + df["clone"]
+                + "_"
+                + df["rep"]
+                + "_"
+                + df["query_name"]
+                + "_"
+                + df["is_read1"].map({True: "R1", False: "R2"})
+            ),
+            parse=lambda df: df["ref_query_blocks"].map(parse_blocks),
+        )[["assemble", "exp_protein_treat", "query_name", "uid", "parse"]]
+        .explode("parse", ignore_index=True)
     )
 
-    df = (
-        pd
-        .concat(
-            [
-                df[["exp_protein_treat", "query_name"]].rename(
-                    columns={"exp_protein_treat": "exp", "query_name": "name"}
-                ),
-                df["interact"]
-                .str.split(":", expand=True)
-                .rename(
-                    columns={
-                        0: "chrom",
-                        1: "chromStart",
-                        2: "chromEnd",
-                        3: "sourceChrom",
-                        4: "sourceStart",
-                        5: "sourceEnd",
-                        6: "sourceStrand",
-                        7: "targetChrom",
-                        8: "targetStart",
-                        9: "targetEnd",
-                        10: "targetStrand",
-                    }
-                ),
-            ],
-            axis=1,
-        )
-        .assign(score=0, color=0, value=1.0, sourceName=".", targetName=".")[
-            [
-                "chrom",
-                "chromStart",
-                "chromEnd",
-                "name",
-                "score",
-                "value",
-                "exp",
-                "color",
-                "sourceChrom",
-                "sourceStart",
-                "sourceEnd",
-                "sourceName",
-                "sourceStrand",
-                "targetChrom",
-                "targetStart",
-                "targetEnd",
-                "targetName",
-                "targetStrand",
-            ]
-        ]
-        .sort_values(by=["chrom", "chromStart"], ignore_index=True)
+    df = pd.concat(
+        [
+            df[["assemble", "exp_protein_treat", "query_name", "uid"]].rename(
+                columns={"exp_protein_treat": "exp", "query_name": "name"}
+            ),
+            df["parse"]
+            .str.split(":", expand=True)
+            .rename(
+                columns={
+                    0: "chrom",
+                    1: "chromStart",
+                    2: "chromEnd",
+                    3: "sourceChrom",
+                    4: "sourceStart",
+                    5: "sourceEnd",
+                    6: "sourceStrand",
+                    7: "targetChrom",
+                    8: "targetStart",
+                    9: "targetEnd",
+                    10: "targetStrand",
+                    11: "joint_block",
+                }
+            ),
+        ],
+        axis=1,
     )
+
+    blat_splice = BlatSplice(cfg)
+    df_pidents = []
+    for assemble in df["assemble"].unique():
+        df_slice = df.query("assemble == @assemble")[
+            ["uid", "joint_block"]
+        ].reset_index(drop=True)
+        blat_input = "\n".join(">" + df_slice["uid"] + "\n" + df_slice["joint_block"])
+        blat_result = blat_splice(blat_input, assemble)
+        df_pident = blat_result.groupby("qseqid", as_index=False)["pident"].max()
+        df_pidents.append(df_pidents)
+        breakpoint()
+
+    df = df.assign(
+        color=0,
+        value=1.0,
+        sourceName=".",
+        targetName=".",
+        joint_block_assemble=lambda df: df["joint_block"] + "|" + df["assemble"],
+        pident=lambda df: df["joint_block_assemble"].map(
+            lambda joint_block_assemble: blat_splice(*joint_block_assemble.split("|"))
+        ),
+        score=lambda df: 1000 - 10 * df["pident"],
+    )[
+        [
+            "chrom",
+            "chromStart",
+            "chromEnd",
+            "name",
+            "score",
+            "value",
+            "exp",
+            "color",
+            "sourceChrom",
+            "sourceStart",
+            "sourceEnd",
+            "sourceName",
+            "sourceStrand",
+            "targetChrom",
+            "targetStart",
+            "targetEnd",
+            "targetName",
+            "targetStrand",
+        ]
+    ].sort_values(by=["chrom", "chromStart"], ignore_index=True)
 
     (cfg["data_dir"] / "result" / "hic" / "interact").mkdir(exist_ok=True, parents=True)
     for exp_protein_treat in df["exp"].unique():

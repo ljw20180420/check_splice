@@ -3,8 +3,8 @@
 - 找一个比plotly更加强大的库（支持click）
 - 甚至类似可交互的coolbox
 
-- arc用颜色
 - 标注splice序列是否有完全匹配
+- Interact也用GT AG弄strand
 - plotly
 - 整理splice仓库
   - 把有用的功能提炼到utils里
