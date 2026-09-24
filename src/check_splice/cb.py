@@ -158,9 +158,9 @@ def process_interact(
             / f"{exp}_{protein_}_{treat_}.bed"
         )
         if blat:
-            max_pident = cfg["max_pident"]
+            max_match_percent = cfg["max_match_percent"]
             df_interact = df_interact.query(
-                "(1000 - score) / 10 <= @max_pident"
+                "(1000 - score) / 10 <= @max_match_percent"
             ).reset_index(drop=True)
 
         select_total_count = SelectTotalCount(cfg)

@@ -143,24 +143,43 @@ def get_interact(cfg: dict) -> None:
     ).assign(uid=lambda df: df["uid"] + "_" + df["bidx"])
 
     blat_splice = BlatSplice(cfg)
-    df_pidents = []
+    df_match_percents = []
     for assemble in df["assemble"].unique():
-        df_slice = df.query("assemble == @assemble")[
-            ["uid", "joint_block"]
-        ].reset_index(drop=True)
+        df_slice = (
+            df
+            .query("assemble == @assemble")[["uid", "joint_block"]]
+            .reset_index(drop=True)
+            .assign(joint_block_len=lambda df: df["joint_block"].str.len())
+        )
         blat_input = "\n".join(">" + df_slice["uid"] + "\n" + df_slice["joint_block"])
         blat_result = blat_splice(blat_input, assemble)
-        df_pident = blat_result.groupby("qseqid", as_index=False)["pident"].max()
-        df_pidents.append(df_pident)
+        df_match_percent = (
+            blat_result
+            .merge(
+                df_slice[["uid", "joint_block_len"]],
+                how="left",
+                left_on="qseqid",
+                right_on="uid",
+                validate="many_to_one",
+            )
+            .assign(
+                match_percent=lambda df: (
+                    df["length"] * df["pident"] / df["joint_block_len"]
+                )
+            )
+            .groupby("qseqid", as_index=False)["match_percent"]
+            .max()
+        )
+        df_match_percents.append(df_match_percent)
 
     df = df.merge(
-        pd.concat(df_pidents, ignore_index=True),
+        pd.concat(df_match_percents, ignore_index=True),
         how="left",
         left_on="uid",
         right_on="qseqid",
         validate="one_to_one",
     ).assign(
-        pident=lambda df: df["pident"].fillna(0.0),
+        match_percent=lambda df: df["match_percent"].fillna(0.0),
     )
 
     df = df.assign(
@@ -168,7 +187,7 @@ def get_interact(cfg: dict) -> None:
         value=1.0,
         sourceName=".",
         targetName=".",
-        score=lambda df: 1000 - 10 * df["pident"],
+        score=lambda df: 1000 - 10 * df["match_percent"],
     )[
         [
             "chrom",

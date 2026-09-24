@@ -8,7 +8,7 @@ def pcdh():
         "cover_threshold": 6,
         "tss_extend": 30,
         "size_before_first": 3000,
-        "max_pident": 98,
+        "max_match_percent": 98,
         "color": {
             "WT": "#000000",
             "NP220": "#FF1493",
