@@ -3,8 +3,12 @@ from pathlib import Path
 
 def pcdh():
     return {
+        "data_dir": Path("/home/ljw/sdc1/hush"),
         "read_length": 150,
+        "cover_threshold": 6,
+        "tss_extend": 30,
         "size_before_first": 3000,
+        "max_pident": 98,
         "color": {
             "WT": "#000000",
             "NP220": "#FF1493",
@@ -59,7 +63,4 @@ def pcdh():
             },
             "2bit": "/home/ljw/sdb1/ucsc/hubs/myHub/lmm10/lmm10.2bit",
         },
-        "data_dir": Path("/home/ljw/sdc1/hush"),
-        "cover_threshold": 6,
-        "tss_extend": 30,
     }

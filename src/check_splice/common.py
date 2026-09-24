@@ -552,10 +552,7 @@ def read_bedpe(bedpe_file: os.PathLike) -> pd.DataFrame:
     )
 
 
-def substract_bedpe(bedpe_file1: os.PathLike, bedpe_file2: os.PathLike) -> pd.DataFrame:
-    df1 = read_bedpe(bedpe_file1)
-    df2 = read_bedpe(bedpe_file2)
-
+def substract_bedpe(df1: pd.DataFrame, df2: pd.DataFrame) -> pd.DataFrame:
     df = df1.merge(
         df2,
         on=[
@@ -593,19 +590,19 @@ def substract_bedpe(bedpe_file1: os.PathLike, bedpe_file2: os.PathLike) -> pd.Da
 
 
 def summation_bedpe(
-    bedpe_files: list[os.PathLike], total_counts: list[int]
+    df_bedpes: list[pd.DataFrame], total_counts: list[int]
 ) -> pd.DataFrame:
-    dfs = [
-        read_bedpe(bedpe_file).assign(
+    df_bedpes = [
+        df_bedpe.assign(
             score=lambda df, total_count=total_count: df["score"] * total_count
         )
-        for bedpe_file, total_count in zip(bedpe_files, total_counts)
+        for df_bedpe, total_count in zip(df_bedpes, total_counts)
     ]
 
-    df_sum = dfs[0]
-    for df in dfs[1:]:
+    df_sum = df_bedpes[0]
+    for df_bedpe in df_bedpes[1:]:
         df_sum = df_sum.merge(
-            df,
+            df_bedpe,
             on=[
                 "chrom1",
                 "start1",
@@ -750,26 +747,8 @@ def read_interact(interact_file: os.PathLike) -> pd.DataFrame:
     )
 
 
-def read_pairs(pairs_file: os.PathLike) -> pd.DataFrame:
-    return pd.read_csv(
-        pairs_file,
-        sep="\t",
-        skiprows=1,
-        names=[
-            "readID",
-            "chrom1",
-            "pos1",
-            "chrom2",
-            "pos2",
-            "strand1",
-            "strand2",
-        ],
-    )
-
-
-def interact2pairs(interact_file: os.PathLike, pairs_file: os.PathLike) -> None:
-    df = read_interact(interact_file)
-    df = df.assign(
+def interact2pairs(df_interact: pd.DataFrame) -> pd.DataFrame:
+    return df_interact.assign(
         pos1=lambda df: np.minimum(df["sourceEnd"], df["targetEnd"]) + 1,
         pos2=lambda df: np.maximum(df["sourceStart"], df["targetStart"]) + 1,
         strand1=lambda df: df["sourceStrand"].where(
@@ -800,17 +779,10 @@ def interact2pairs(interact_file: os.PathLike, pairs_file: os.PathLike) -> None:
         ]
     ]
 
-    with open(pairs_file, "w") as fd:
-        fd.write("## pairs format v1.0\n")
-        df.to_csv(fd, sep="\t", header=False, index=False)
 
-
-def pairs2bedpe(
-    pairs_file: os.PathLike, bedpe_file: os.PathLike, total_count: int
-) -> None:
-    df = read_pairs(pairs_file)
-    df = (
-        df
+def pairs2bedpe(df_pairs: pd.DataFrame, total_count: int) -> pd.DataFrame:
+    return (
+        df_pairs
         .rename(
             columns={
                 "pos1": "end1",
@@ -858,9 +830,21 @@ def pairs2bedpe(
         ]
     )
 
-    df.to_csv(
-        bedpe_file,
-        sep="\t",
-        header=False,
-        index=False,
-    )
+
+def interact2bedpe(df_interact: pd.DataFrame, total_count: int) -> pd.DataFrame:
+    return pairs2bedpe(interact2pairs(df_interact), total_count)
+
+
+def bedpe_in_range(
+    df_bedpe: pd.DataFrame, chrom: str, start: int, end: int
+) -> pd.DataFrame:
+    return df_bedpe.query(
+        """
+            chrom1 == @chrom and \
+            chrom2 == @chrom and \
+            start1 >= @start and \
+            start1 <= @end and \
+            start2 >= @start and \
+            start2 <= @end
+        """
+    ).reset_index(drop=True)

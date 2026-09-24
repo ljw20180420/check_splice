@@ -1,8 +1,4 @@
-import os
-
-import numpy as np
 import pandas as pd
-import pyBigWig
 
 from .common import substract_bigwig, write_bigwig
 from .utils import get_merge_bam, map_to_wild_type_merge, treat2assemble, treat2diff

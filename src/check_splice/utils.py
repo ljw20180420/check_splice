@@ -109,9 +109,7 @@ class SelectTotalCount:
 
 
 def map_to_wild_type_merge(exp: str, protein: str, treat: str) -> tuple[str, str, str]:
-    if protein == "merge":
-        wt_protein = "merge"
-    elif exp == "clip":
+    if exp == "clip":
         wt_protein = "WT"
     else:
         wt_protein = protein

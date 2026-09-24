@@ -113,61 +113,10 @@ cfg = config.pcdh()
 stat.get_exon_pre(cfg)
 
 # %%
-from check_splice import config, ply
-
-cfg = config.pcdh()
-ply.get_query_from_exp_protein_treat_query_name(cfg, "hg19")
-ply.get_query_from_exp_protein_treat_query_name(cfg, "mm10")
-
-# %%
-from check_splice import config, ply
-
-cfg = config.pcdh()
-ply.get_plotly_interact(cfg, "hg19")
-ply.get_plotly_interact(cfg, "mm10")
-
-# %%
-from check_splice import config, ply
-
-cfg = config.pcdh()
-ply.draw_interact(cfg, "hg19")
-ply.draw_interact(cfg, "mm10")
-
-# %%
 from check_splice import config, interact
 
 cfg = config.pcdh()
 interact.get_interact(cfg)
-
-# %%
-from check_splice import config, interact
-
-cfg = config.pcdh()
-interact.interact_to_pairs(cfg)
-
-# %%
-from check_splice import config, interact
-
-cfg = config.pcdh()
-interact.pairs_to_bedpe(cfg)
-
-# %%
-from check_splice import config, interact
-
-cfg = config.pcdh()
-interact.diff_bedpe(cfg)
-
-# %%
-from check_splice import config, interact
-
-cfg = config.pcdh()
-interact.sum_bedpe(cfg)
-
-# %%
-from check_splice import config, interact
-
-cfg = config.pcdh()
-interact.filter_non_cpcdh_junction(cfg)
 
 # %%
 from check_splice import bigwig, config
@@ -187,8 +136,12 @@ from check_splice import cb, common, config
 
 cfg = config.pcdh()
 common.merge_pdf(
-    cb.draw_links(cfg, cluster="alpha"),
-    cfg["data_dir"] / "result" / "hic" / "draw" / "links.pdf",
+    cb.draw_links(cfg=cfg, cluster="alpha", blat=False, just=True),
+    cfg["data_dir"] / "result" / "hic" / "draw" / "just.links.pdf",
+)
+common.merge_pdf(
+    cb.draw_links(cfg=cfg, cluster="alpha", blat=True, just=False),
+    cfg["data_dir"] / "result" / "hic" / "draw" / "blat.links.pdf",
 )
 
 # %%
@@ -208,3 +161,24 @@ common.merge_pdf(
     cb.draw_reads(cfg),
     cfg["data_dir"] / "result" / "hic" / "draw" / "reads.pdf",
 )
+
+# %%
+from check_splice import config, ply
+
+cfg = config.pcdh()
+ply.get_query_from_exp_protein_treat_query_name(cfg, "hg19")
+ply.get_query_from_exp_protein_treat_query_name(cfg, "mm10")
+
+# %%
+from check_splice import config, ply
+
+cfg = config.pcdh()
+ply.get_plotly_interact(cfg, "hg19")
+ply.get_plotly_interact(cfg, "mm10")
+
+# %%
+from check_splice import config, ply
+
+cfg = config.pcdh()
+ply.draw_interact(cfg, "hg19")
+ply.draw_interact(cfg, "mm10")
