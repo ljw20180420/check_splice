@@ -160,19 +160,4 @@ common.merge_pdf(
 from check_splice import config, ply
 
 cfg = config.pcdh()
-ply.get_query_from_exp_protein_treat_query_name(cfg, "hg19")
-ply.get_query_from_exp_protein_treat_query_name(cfg, "mm10")
-
-# %%
-from check_splice import config, ply
-
-cfg = config.pcdh()
-ply.get_plotly_interact(cfg, "hg19")
-ply.get_plotly_interact(cfg, "mm10")
-
-# %%
-from check_splice import config, ply
-
-cfg = config.pcdh()
-ply.draw_interact(cfg, "hg19")
-ply.draw_interact(cfg, "mm10")
+ply.get_plotly_interact(cfg, "alpha")
