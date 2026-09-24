@@ -44,37 +44,3 @@ def construct_artifact_bw(cfg: dict, assemble: str) -> None:
             values=df_pv["value"].to_numpy(),
             bigwig_file=bw_file,
         )
-
-
-def construct_diff_bw(cfg: dict) -> None:
-    df_merge = (
-        get_merge_bam(cfg).query("treat.str.endswith('treat')").reset_index(drop=True)
-    )
-
-    for exp, protein, treat in zip(
-        df_merge["exp"], df_merge["protein"], df_merge["treat"]
-    ):
-        assemble = treat2assemble(treat)
-        chrom = cfg[assemble]["chrom"]
-        start = cfg[assemble]["start"]
-        end = cfg[assemble]["end"]
-        chrom_size = cfg[assemble]["length"]
-
-        treat_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
-        control_bw = (
-            cfg["data_dir"]
-            / "result"
-            / "bw"
-            / f"{'_'.join(map_to_wild_type_merge(exp, protein, treat))}.bw"
-        )
-        if not control_bw.exists() or not treat_bw.exists():
-            continue
-
-        diff = treat2diff(treat)
-        diff_bw = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{diff}.bw"
-
-        starts, ends, diff_values = substract_bigwig(
-            treat_bw, control_bw, chrom, start, end
-        )
-
-        write_bigwig(chrom, chrom_size, starts, ends, diff_values, diff_bw)

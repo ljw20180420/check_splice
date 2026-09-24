@@ -17,6 +17,7 @@ from .common import (
     draw_color_bar,
     interact2bedpe,
     read_interact,
+    substract_bigwig,
     summation_bedpe,
 )
 from .interact import BedpeJustIntronFilter
@@ -258,10 +259,10 @@ def draw_pre_exon(
     title: str,
     control_f: os.PathLike,
     treat_f: os.PathLike,
-    diff_f: os.PathLike,
     out_f: os.PathLike,
 ) -> os.PathLike:
     chrom = cfg[assemble][cluster]["chrom"]
+    chrom_size = cfg[assemble]["length"]
     start = cfg[assemble][cluster]["start"]
     end = cfg[assemble][cluster]["end"]
 
@@ -278,57 +279,70 @@ def draw_pre_exon(
         yup = 0
 
     height = 1
-    frame = (
-        Frame(width=18, margins={"left": 0.1, "right": 0.92, "bottom": 0, "top": 1})
-        + XAxis(name=assemble)
-        + BigWig(
-            os.fspath(control_f),
-            min_value=0,
-            max_value=yup,
-            threshold=0,
-            threshold_color=cfg["color"]["WT"],
-            height=height,
-            title="control",
+    with tempfile.TemporaryDirectory() as tmpdir:
+        diff_f = pathlib.Path(tmpdir) / "diff.bw"
+        substract_bigwig(
+            bigwig_file1=treat_f,
+            bigwig_file2=control_f,
+            bigwig_file_diff=diff_f,
+            chrom=chrom,
+            chrom_size=chrom_size,
+            start=start,
+            end=end,
         )
-        + BED(
-            os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
-            display="collapsed",
-            labels=False,
-            title=cluster,
+
+        frame = (
+            Frame(width=18, margins={"left": 0.1, "right": 0.92, "bottom": 0, "top": 1})
+            + XAxis(name=assemble)
+            + BigWig(
+                os.fspath(control_f),
+                min_value=0,
+                max_value=yup,
+                threshold=0,
+                threshold_color=cfg["color"]["WT"],
+                height=height,
+                title="control",
+            )
+            + BED(
+                os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
+                display="collapsed",
+                labels=False,
+                title=cluster,
+            )
+            + BigWig(
+                os.fspath(treat_f),
+                min_value=0,
+                max_value=yup,
+                threshold=0,
+                threshold_color=cfg["color"][protein],
+                height=height,
+                title="treat",
+            )
+            + BED(
+                os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
+                display="collapsed",
+                labels=False,
+                title=cluster,
+            )
+            + BigWig(
+                os.fspath(diff_f),
+                min_value=-yup,
+                max_value=yup,
+                threshold=0,
+                threshold_color=cfg["color"]["INCREASE"],
+                color=cfg["color"]["DECREASE"],
+                height=height,
+                title="diff",
+                spine=0.5,
+            )
+            + FrameTitle(title)
         )
-        + BigWig(
-            os.fspath(treat_f),
-            min_value=0,
-            max_value=yup,
-            threshold=0,
-            threshold_color=cfg["color"][protein],
-            height=height,
-            title="treat",
-        )
-        + BED(
-            os.fspath(cfg["data_dir"] / "result" / f"{assemble}.12.bed"),
-            display="collapsed",
-            labels=False,
-            title=cluster,
-        )
-        + BigWig(
-            os.fspath(diff_f),
-            min_value=-yup,
-            max_value=yup,
-            threshold=0,
-            threshold_color=cfg["color"]["INCREASE"],
-            color=cfg["color"]["DECREASE"],
-            height=height,
-            title="diff",
-            spine=0.5,
-        )
-        + FrameTitle(title)
-    )
-    fig = frame.plot(chrom, start, end)
-    fig.savefig(os.fspath(out_f))
+        fig = frame.plot(chrom, start, end)
+        fig.savefig(os.fspath(out_f))
 
 
 def draw_pre_exons(cfg: dict, cluster: str):
+    (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
     df_merge = (
         get_merge_bam(cfg).query("treat.str.endswith('treat')").reset_index(drop=True)
     )
@@ -336,42 +350,26 @@ def draw_pre_exons(cfg: dict, cluster: str):
         df_merge[["exp", "protein", "treat"]].drop_duplicates().itertuples(index=False)
     ):
         assemble = treat2assemble(treat)
-
         treat_f = cfg["data_dir"] / "result" / "bw" / f"{exp}_{protein}_{treat}.bw"
         _, wt_protein, control = map_to_wild_type_merge(exp, protein, treat)
         control_f = (
             cfg["data_dir"] / "result" / "bw" / f"{exp}_{wt_protein}_{control}.bw"
         )
-        diff_f = (
-            cfg["data_dir"]
-            / "result"
-            / "bw"
-            / f"{exp}_{protein}_{treat2diff(treat)}.bw"
-        )
 
-        (cfg["data_dir"] / "result" / "hic" / "draw").mkdir(parents=True, exist_ok=True)
-
-        pre_exon_file = (
-            cfg["data_dir"]
-            / "result"
-            / "hic"
-            / "draw"
-            / f"{assemble}_{exp}_{protein}_{cluster}_pre_exon.pdf"
-        )
-
+        title = f"{assemble}_{exp}_{protein}_{cluster}"
+        out_f = cfg["data_dir"] / "result" / "hic" / "draw" / f"{title}.pre_exon.pdf"
         draw_pre_exon(
             cfg=cfg,
             assemble=assemble,
             cluster=cluster,
             protein=protein,
-            title=f"{assemble}_{exp}_{protein}_{cluster}",
+            title=title,
             control_f=control_f,
             treat_f=treat_f,
-            diff_f=diff_f,
-            out_f=pre_exon_file,
+            out_f=out_f,
         )
 
-        yield pre_exon_file
+        yield out_f
 
 
 def estimate_height(bam_file: os.PathLike, chrom: str, start: int, end: int) -> float:

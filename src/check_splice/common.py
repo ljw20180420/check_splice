@@ -485,10 +485,12 @@ def merge_adjacent_intervals_with_identical_values(
 def substract_bigwig(
     bigwig_file1: os.PathLike,
     bigwig_file2: os.PathLike,
+    bigwig_file_diff: os.PathLike,
     chrom: str,
+    chrom_size: int,
     start: int,
     end: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> None:
     with (
         pyBigWig.open(os.fspath(bigwig_file1)) as bw1,
         pyBigWig.open(os.fspath(bigwig_file2)) as bw2,
@@ -507,7 +509,14 @@ def substract_bigwig(
         "diff_value != 0"
     )
 
-    return df["start"].to_numpy(), df["end"].to_numpy(), df["diff_value"].to_numpy()
+    write_bigwig(
+        chrom,
+        chrom_size,
+        starts=df["start"].to_numpy(),
+        ends=df["end"].to_numpy(),
+        values=df["diff_value"].to_numpy(),
+        bigwig_file=bigwig_file_diff,
+    )
 
 
 def write_bigwig(

@@ -126,12 +126,6 @@ bigwig.construct_artifact_bw(cfg, "hg19")
 bigwig.construct_artifact_bw(cfg, "mm10")
 
 # %%
-from check_splice import bigwig, config
-
-cfg = config.pcdh()
-bigwig.construct_diff_bw(cfg)
-
-# %%
 from check_splice import cb, common, config
 
 cfg = config.pcdh()
