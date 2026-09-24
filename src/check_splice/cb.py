@@ -13,7 +13,7 @@ from dna_features_viewer import GraphicFeature, GraphicRecord
 from dna_features_viewer.compute_features_levels import compute_features_levels
 
 from .common import (
-    bedpe_in_range,
+    bedpe_in_range_with_strand,
     draw_color_bar,
     interact2bedpe,
     read_interact,
@@ -42,8 +42,8 @@ def draw_link(
     chrom = cfg[assemble][cluster]["chrom"]
     start = cfg[assemble][cluster]["start"]
     end = cfg[assemble][cluster]["end"]
-    df_control = bedpe_in_range(df_control, chrom, start, end)
-    df_treat = bedpe_in_range(df_treat, chrom, start, end)
+    df_control = bedpe_in_range_with_strand(df_control, chrom, start, end)
+    df_treat = bedpe_in_range_with_strand(df_treat, chrom, start, end)
 
     max_score = 0
     for df_bedpe in [df_control, df_treat]:
@@ -56,16 +56,28 @@ def draw_link(
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = pathlib.Path(tmpdir)
-        control_file = tmpdir / "control_file.bedpe"
-        df_control.to_csv(control_file, sep="\t", index=False, header=False)
-        treat_file = tmpdir / "treat_file.bedpe"
-        df_treat.to_csv(treat_file, sep="\t", index=False, header=False)
+        control_f = tmpdir / "control.f.bedpe"
+        df_control.query("strand1 == '+' and strand2 == '+'").to_csv(
+            control_f, sep="\t", index=False, header=False
+        )
+        control_r = tmpdir / "control.r.bedpe"
+        df_control.query("strand1 == '-' and strand2 == '-'").to_csv(
+            control_r, sep="\t", index=False, header=False
+        )
+        treat_f = tmpdir / "treat_f.bedpe"
+        df_treat.query("strand1 == '+' and strand2 == '+'").to_csv(
+            treat_f, sep="\t", index=False, header=False
+        )
+        treat_r = tmpdir / "treat_r.bedpe"
+        df_treat.query("strand1 == '-' and strand2 == '-'").to_csv(
+            treat_r, sep="\t", index=False, header=False
+        )
 
         frame = (
             Frame(width=18)
             + XAxis(name=assemble)
             + BEDPE(
-                os.fspath(control_file),
+                os.fspath(control_f),
                 line_width=1,
                 cmap=cmap,
                 vmin=0,
@@ -81,7 +93,18 @@ def draw_link(
                 title=cluster,
             )
             + BEDPE(
-                os.fspath(treat_file),
+                os.fspath(control_r),
+                line_width=1,
+                cmap=cmap,
+                vmin=0,
+                vmax=max_score,
+                diameter_to_height=diameter_to_height,
+                height=height,
+                title="control",
+                orientation="inverted",
+            )
+            + BEDPE(
+                os.fspath(treat_f),
                 line_width=1,
                 cmap=cmap,
                 vmin=0,
@@ -95,6 +118,17 @@ def draw_link(
                 display="collapsed",
                 labels=False,
                 title=cluster,
+            )
+            + BEDPE(
+                os.fspath(treat_r),
+                line_width=1,
+                cmap=cmap,
+                vmin=0,
+                vmax=max_score,
+                diameter_to_height=diameter_to_height,
+                height=height,
+                title="treat",
+                orientation="inverted",
             )
             + FrameTitle(title)
         )

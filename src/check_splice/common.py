@@ -835,7 +835,7 @@ def interact2bedpe(df_interact: pd.DataFrame, total_count: int) -> pd.DataFrame:
     return pairs2bedpe(interact2pairs(df_interact), total_count)
 
 
-def bedpe_in_range(
+def bedpe_in_range_with_strand(
     df_bedpe: pd.DataFrame, chrom: str, start: int, end: int
 ) -> pd.DataFrame:
     return df_bedpe.query(
@@ -845,6 +845,8 @@ def bedpe_in_range(
             start1 >= @start and \
             start1 <= @end and \
             start2 >= @start and \
-            start2 <= @end
+            start2 <= @end and \
+            strand1.isin(["+", "-"]) and \
+            strand2.isin(["+", "-"])
         """
     ).reset_index(drop=True)
