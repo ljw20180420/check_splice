@@ -1,7 +1,7 @@
 import pandas as pd
 
-from .common import substract_bigwig, write_bigwig
-from .utils import get_merge_bam, map_to_wild_type_merge, treat2assemble, treat2diff
+from .common import write_bigwig
+from .utils import get_merge_bam
 
 
 def construct_artifact_bw(cfg: dict, assemble: str) -> None:

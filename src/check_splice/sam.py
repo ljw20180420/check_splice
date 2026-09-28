@@ -43,6 +43,7 @@ def parse_strand_sensitive_bam(cfg: dict):
                 query_block_start,
                 query_block_end,
                 align_string,
+                query,
             ) in parse_sam_read.parse_read(read):
                 if read.is_read1:
                     (
@@ -53,6 +54,7 @@ def parse_strand_sensitive_bam(cfg: dict):
                         query_block_start,
                         query_block_end,
                         align_string,
+                        query,
                     ) = parse_sam_read.flip_read(
                         ref_block_chrom,
                         ref_block_start,
@@ -61,10 +63,11 @@ def parse_strand_sensitive_bam(cfg: dict):
                         query_block_start,
                         query_block_end,
                         align_string,
+                        query,
                         read.query_length,
                     )
 
-                yield f"{exp},{protein},{clone},{rep},{read.query_name},{read.get_forward_sequence()},{read.is_forward},{read.is_read1},{read.is_qcfail},{read.is_duplicate},{read.mapping_quality},{ref_block_chrom},{ref_block_start},{ref_block_end},{ref_block_strand},{query_block_start},{query_block_end},{align_string}"
+                yield f"{exp},{protein},{clone},{rep},{read.query_name},{query},{read.is_forward},{read.is_read1},{read.is_qcfail},{read.is_duplicate},{read.mapping_quality},{ref_block_chrom},{ref_block_start},{ref_block_end},{ref_block_strand},{query_block_start},{query_block_end},{align_string}"
 
 
 def group_read_blocks(cfg: dict):

@@ -11,6 +11,7 @@ import pyBigWig
 import pypdf
 import pysam
 import sh
+from Bio.Seq import Seq
 from matplotlib import cm, colors
 
 
@@ -381,6 +382,7 @@ class ParseSamRead:
                     query_block_start,
                     query_block_end,
                     align_string,
+                    read.get_forward_sequence(),
                 )
 
     def flip_read(
@@ -392,6 +394,7 @@ class ParseSamRead:
         query_block_start: int,
         query_block_end: int,
         align_string: str,
+        query: str,
         query_length: int,
     ):
         return (
@@ -402,6 +405,7 @@ class ParseSamRead:
             query_length - query_block_end,
             query_length - query_block_start,
             "".join(reversed(self.align_sting_parser.findall(align_string))),
+            str(Seq(query).reverse_complement()),
         )
 
 

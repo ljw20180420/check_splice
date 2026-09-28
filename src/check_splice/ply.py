@@ -1,11 +1,9 @@
 import re
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import py2bit
 from Bio.Seq import Seq
-from plotly.subplots import make_subplots
 
 from .utils import clone2assemble, clone2treat, get_merge_bam, treat2assemble
 
@@ -21,8 +19,6 @@ def get_hover(
     align_strings: str,
     idx: int,
 ) -> str:
-    if query_name == "A00358:943:H7FKWDSX7:2:2313:9787:16939" and R1R2 == "R1":
-        breakpoint()
     ref_chrom, ref_start, ref_end, ref_strand = ref_blocks.split(";")[idx].split(":")
     ref_start, ref_end = int(ref_start), int(ref_end)
     with py2bit.open(cfg[assemble]["2bit"]) as tb:
@@ -154,12 +150,10 @@ def in_range(cfg: dict, cluster: str, assemble: str, ref_blocks: str) -> bool:
 
 def get_plotly_interact(cfg: dict, cluster: str) -> None:
     df = (
-        (
-            pd
-            .read_feather(cfg["data_dir"] / "result" / "reads.feather")
-            .query("ref_blocks.str.contains(';')")
-            .reset_index(drop=True)
-        )
+        pd
+        .read_feather(cfg["data_dir"] / "result" / "reads.feather")
+        .query("ref_blocks.str.contains(';')")
+        .reset_index(drop=True)
         .assign(
             treat=lambda df: df["clone"].map(clone2treat),
             assemble=lambda df: df["clone"].map(clone2assemble),
