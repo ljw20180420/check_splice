@@ -328,37 +328,14 @@ class BedpeJustIntronFilter:
             for assemble in ["hg19", "mm10"]
         }
 
-    def __call__(self, df_in: pd.DataFrame, assemble: str) -> pd.DataFrame:
-        return (
-            df_in
-            .assign(**{
-                name: lambda df, start=start, end=end: (
-                    (df["start1"] == start) & (df["start2"] == end)
-                )
-                for start, end, name in zip(
-                    self.df_introns[assemble]["start"],
-                    self.df_introns[assemble]["end"],
-                    self.df_introns[assemble]["name"],
-                )
-            })
-            .assign(
-                cpcdh=lambda df, df_intron=self.df_introns[assemble]: df[
-                    df_intron["name"].tolist()
-                ].any(axis=1)
+    def __call__(self, df_in: pd.DataFrame, assemble: str) -> pd.Series:
+        return df_in.assign(**{
+            name: lambda df, start=start, end=end: (
+                (df["start1"] == start) & (df["start2"] == end)
             )
-            .query("cpcdh")
-            .reset_index(drop=True)[
-                [
-                    "chrom1",
-                    "start1",
-                    "end1",
-                    "chrom2",
-                    "start2",
-                    "end2",
-                    "name",
-                    "score",
-                    "strand1",
-                    "strand2",
-                ]
-            ]
-        )
+            for start, end, name in zip(
+                self.df_introns[assemble]["start"],
+                self.df_introns[assemble]["end"],
+                self.df_introns[assemble]["name"],
+            )
+        })[self.df_introns[assemble]["name"].tolist()].any(axis=1)

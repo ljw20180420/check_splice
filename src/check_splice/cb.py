@@ -169,12 +169,26 @@ def process_interact(
         df_bedpe = interact2bedpe(df_interact, total_count)
         if just:
             bedpe_just_intron_filter = BedpeJustIntronFilter(cfg)
-            df_bedpe = bedpe_just_intron_filter(
-                df_bedpe.query("strand1 == '+' and strand2 == '+'").reset_index(
-                    drop=True
-                ),
+            df_bedpe["just"] = bedpe_just_intron_filter(
+                df_in=df_bedpe,
                 assemble=treat2assemble(treat),
             )
+            df_bedpe = df_bedpe.query(
+                "just and strand1 == '+' and strand2 == '+'"
+            ).reset_index(drop=True)[
+                [
+                    "chrom1",
+                    "start1",
+                    "end1",
+                    "chrom2",
+                    "start2",
+                    "end2",
+                    "name",
+                    "score",
+                    "strand1",
+                    "strand2",
+                ]
+            ]
 
         yield df_bedpe, total_count
 

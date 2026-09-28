@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import py2bit
 from Bio.Seq import Seq
+from plotly.subplots import make_subplots
 
 from .utils import clone2assemble, clone2treat, get_merge_bam, treat2assemble
 
@@ -195,8 +196,38 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
         df_slice = df.query(
             "exp == @exp and protein == @protein and treat == @treat"
         ).reset_index(drop=True)
-        fig = go.Figure()
 
+        assemble = treat2assemble(treat)
+        df_cpcdh = pd.read_csv(
+            cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv", header=0
+        )
+        assert cluster in ["alpha", "beta", "gamma"], (
+            "cluster must be one of alpha, beta, gamma"
+        )
+        if cluster == "alpha":
+            df_cpcdh.query(
+                "name.str.lower().str.startswith('pcdha') or name.str.startswith('ace')"
+            ).reset_index(drop=True)
+        elif cluster == "beta":
+            df_cpcdh.query("name.str.lower().str.startswith('pcdhb')").reset_index(
+                drop=True
+            )
+        else:
+            # cluster == "gamma"
+            df_cpcdh.query(
+                "name.str.lower().str.startswith('pcdhg') or name.str.startswith('gce')"
+            ).reset_index(drop=True)
+
+        fig = make_subplots(
+            rows=2,
+            cols=1,
+            shared_xaxes=True,
+            subplot_titles=(
+                "splice",
+                "gene",
+            ),
+            row_heights=[0.95, 0.05],
+        )
         for y, (ref_blocks, hovers) in enumerate(
             zip(df_slice["ref_blocks"], df_slice["hovers"])
         ):
@@ -206,42 +237,74 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
 
                 fig.add_trace(
                     go.Scatter(
-                        x=[
-                            ref_start,
-                            ref_start,
-                            ref_end,
-                            ref_end,
-                            ref_start,
-                            (ref_start + ref_end) / 2,
-                        ],
-                        y=[y - 0.5, y + 0.5, y + 0.5, y - 0.5, y - 0.5, y],
+                        x=[ref_start, ref_start, ref_end, ref_end],
+                        y=[y + 0.5, y - 0.5, y - 0.5, y + 0.5],
                         fill="toself",
-                        mode="text",
-                        text=["", "", "", "", "", "+"],
-                        hovertext=hover,
-                        hovertemplate="%{text}",
+                        fillcolor=cfg["color"][ref_strand],
+                        mode="none",
+                        name=hover,
                         hoverlabel={
                             "font": {
                                 "family": "Courier New, monospace",
                                 "size": 14,
+                                "color": "black",
                             },
-                            "bgcolor": "rgba(255, 255, 255, 0.0)",
+                            "bgcolor": "white",
                         },
                         showlegend=False,
-                    )
+                    ),
+                    row=1,
+                    col=1,
                 )
+
+        for start, end, name in zip(
+            df_cpcdh["start"], df_cpcdh["end"], df_cpcdh["name"]
+        ):
+            fig.add_trace(
+                go.Scatter(
+                    x=[start, start, end, end],
+                    y=[0.5, -0.5, -0.5, 0.5],
+                    mode="none",
+                    fill="toself",
+                    fillcolor="blue",
+                    name=name,
+                    hoverlabel={
+                        "font": {
+                            "family": "Courier New, monospace",
+                            "size": 14,
+                            "color": "black",
+                        },
+                        "bgcolor": "white",
+                    },
+                    showlegend=False,
+                ),
+                row=2,
+                col=1,
+            )
+            fig.add_annotation(
+                x=(start + end) / 2,
+                y=-1,
+                text=name,
+                font={
+                    "size": 8,
+                },
+                showarrow=False,
+                row=2,
+                col=1,
+            )
 
         fig.update_layout(
             title=f"{exp}_{protein}_{treat}",
-            xaxis={
-                "range": [
-                    cfg[treat2assemble(treat)][cluster]["start"],
-                    cfg[treat2assemble(treat)][cluster]["end"],
-                ]
-            },
-            yaxis={"range": [-1, y + 1]},
             hovermode="closest",
         )
+        fig.update_xaxes(
+            range=[
+                cfg[treat2assemble(treat)][cluster]["start"],
+                cfg[treat2assemble(treat)][cluster]["end"],
+            ]
+        )
+        fig.update_yaxes(range=[-1, len(df_slice)], row=1, col=1)
+        fig.update_yaxes(range=[-2, 1], row=2, col=1)
 
         fig.write_html(
             cfg["data_dir"]
