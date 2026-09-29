@@ -1,17 +1,13 @@
 import numpy as np
 import pandas as pd
-import py2bit
 
 from .common import (
-    BlatSplice,
-    donor_acceptor_to_strand,
     get_cpcdh_intron,
     interact2pairs,
     pairs2bedpe,
 )
 from .utils import (
     SelectTotalCount,
-    clone2assemble,
     clone2treat,
     get_merge_bam,
 )

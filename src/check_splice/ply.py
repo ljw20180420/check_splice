@@ -146,6 +146,7 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
         .reset_index(drop=True)
         .assign(
             assemble=lambda df: df["clone"].map(clone2assemble),
+            treat=lambda df: df["clone"].map(clone2treat),
             cluster_chrom=lambda df: df["assemble"].map(
                 lambda assemble: cfg[assemble][cluster]["chrom"]
             ),
@@ -194,15 +195,15 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
         pd
         .read_csv(cfg["data_dir"] / "result" / "expand_splice.csv", header=0)
         .assign(
-            match_percent=lambda df: (
-                df["match_base"] / df["joint_block"].str.len() * 100
-            ),
-            detail=lambda df: df["detail"].str.replace("\n", "<br>"),
             just=lambda df: bedpe_just_intron_filter(
                 starts=np.minimum(df["end1"], df["end2"]),
                 ends=np.maximum(df["start1"], df["start2"]),
                 assembles=df["clone"].map(clone2assemble),
             ),
+            match_percent=lambda df: (
+                df["match_base"] / df["joint_block"].str.len() * 100
+            ),
+            detail=lambda df: df["detail"].str.replace("\n", "<br>"),
         )
         .sort_values(
             by=["exp", "protein", "clone", "rep", "query_name", "is_read1", "bidx"]
@@ -211,34 +212,38 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
             ["exp", "protein", "clone", "rep", "query_name", "is_read1"], ax_index=False
         )
         .agg(
-            match_percent=pd.NamedAgg(
-                "match_percent", lambda se: ";".join(se.astype(str))
+            just=pd.NamedAgg(column="just", aggfunc=any),
+            match_percents=pd.NamedAgg(
+                column="match_percent", aggfunc=lambda se: ";".join(se.astype(str))
             ),
-            detail=pd.NamedAgg("detail", lambda se: ";;".join(se)),
-            just=pd.NamedAgg("just", lambda se: ";;".join(se.astype(str))),
+            details=pd.NamedAgg(column="detail", aggfunc=";;".join),
         )
     )
 
-    df = (
-        pd
-        .read_feather(cfg["data_dir"] / "result" / "reads.feather")
-        .query("ref_blocks.str.contains(';')")
-        .reset_index(drop=True)
-        .assign(
-            treat=lambda df: df["clone"].map(clone2treat),
-            assemble=lambda df: df["clone"].map(clone2assemble),
-            assemble_ref_blocks=lambda df: df["assemble"] + "|" + df["ref_blocks"],
-            in_cluster=lambda df: df["assemble_ref_blocks"].map(
-                lambda assemble_ref_blocks: in_range(
-                    cfg, cluster, *assemble_ref_blocks.split("|")
-                )
-            ),
-        )
-        .query("in_cluster")
-        .reset_index(drop=True)
+    df = df.merge(
+        right=df_expand[
+            "exp",
+            "protein",
+            "clone",
+            "rep",
+            "query_name",
+            "is_read1",
+            "just",
+            "match_percents",
+            "details",
+        ],
+        how="left",
+        on=[
+            "exp",
+            "protein",
+            "clone",
+            "rep",
+            "query_name",
+            "is_read1",
+        ],
+        validate="one_to_one",
     )
 
-    bedpe_just_intron_filter = BedpeJustIntronFilter(cfg)
     df_merge = get_merge_bam(cfg)
     for exp, protein, treat in zip(
         df_merge["exp"], df_merge["protein"], df_merge["treat"]
@@ -247,54 +252,72 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
             "exp == @exp and protein == @protein and treat == @treat"
         ).reset_index(drop=True)
 
-        assemble = treat2assemble(treat)
-        df_cpcdh = pd.read_csv(
-            cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv", header=0
-        )
-
-        df_singles = []
-        for y, (ref_blocks, hovers) in enumerate(
-            zip(df_slice["ref_blocks"], df_slice["hovers"])
+        idxs = []
+        ref_starts = []
+        ref_ends = []
+        ref_strands = []
+        sam_texts = []
+        justs = []
+        blat_prevs = []
+        blat_nexts = []
+        for idx, (
+            ref_blocks,
+            hovers,
+            just,
+            match_percents,
+            details,
+        ) in enumerate(
+            zip(
+                df_slice["ref_blocks"],
+                df_slice["hovers"],
+                df_slice["just"],
+                df_slice["match_percents"],
+                df_slice["details"],
+            )
         ):
-            ref_starts = []
-            ref_ends = []
-            ref_strands = []
             for ref_block, hover in zip(ref_blocks.split(";"), hovers.split(";;")):
                 ref_chrom, ref_start, ref_end, ref_strand = ref_block.split(":")
                 ref_start, ref_end = int(ref_start), int(ref_end)
 
+                idxs.append(idx)
                 ref_starts.append(ref_start)
                 ref_ends.append(ref_end)
                 ref_strands.append(ref_strand)
+                sam_texts.append(hover)
+                justs.append(just)
 
-            df_single = pd.DataFrame({
-                "y": y,
+            blat_prevs.append("N/A")
+            for match_percent, detail in zip(
+                match_percents.split(";"), details.split(";;")
+            ):
+                blat_string = f"match_percent: {match_percent}<br>{detail}"
+                blat_prevs.append(blat_string)
+                blat_nexts.append(blat_string)
+            blat_nexts.append("N/A")
+
+        df_format = (
+            pd
+            .DataFrame({
+                "idx": idxs,
                 "ref_start": ref_starts,
                 "ref_end": ref_ends,
                 "ref_strand": ref_strands,
+                "sam_text": sam_texts,
+                "just": justs,
+                "blat_prev": blat_prevs,
+                "blat_next": blat_nexts,
             })
-
-            assert len(df_single["ref_strand"].unique()) > 1, (
-                "read has inconsistent block strands"
+            .sort_values(by=["ref_start", "ref_end"], ignore_index=True)
+            .assign(
+                just_idx=lambda df: df["just"].map({True: 0, False: 1}),
+                ref_strand_idx=lambda df: df["ref_strand"].map({"-": 0, "+": 1}),
+                y=lambda df: df.groupby([
+                    "just_idx",
+                    "ref_strand_idx",
+                    "idx",
+                ]).transform("ngroup"),
             )
-
-            df_single["just"] = bedpe_just_intron_filter(
-                df_in=pd.DataFrame({
-                    "start1": df_single["ref_end"]
-                    .where(df_single["ref_strand"] == "+", df_single["ref_start"])
-                    .iloc[:-1],
-                    "start2": df_single["ref_start"]
-                    .where(df_single["ref_strand"] == "+", df_single["ref_end"])
-                    .iloc[1:],
-                }),
-                assemble=assemble,
-            ).any()
-            df_singles.append(df_single)
-
-        df_singles = pd.concat(
-            df_single,
-            ignore_index=True,
-        ).sort_values(by=["just", "ref_strand", "y"], ascending=[False, True, True])
+        )
 
         fig = make_subplots(
             rows=2,
@@ -307,28 +330,64 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
             row_heights=[0.95, 0.05],
         )
 
-        fig.add_trace(
-            go.Scatter(
-                x=[ref_start, ref_start, ref_end, ref_end],
-                y=[y + 0.5, y - 0.5, y - 0.5, y + 0.5],
-                fill="toself",
-                fillcolor=cfg["color"][ref_strand],
-                mode="none",
-                name=hover,
-                hoverlabel={
-                    "font": {
-                        "family": "Courier New, monospace",
-                        "size": 14,
-                        "color": "black",
+        for (
+            ref_start,
+            ref_end,
+            y,
+            ref_strand,
+            sam_text,
+            just,
+            blat_prev,
+            blat_next,
+        ) in zip(
+            df_format["ref_start"],
+            df_format["ref_end"],
+            df_format["y"],
+            df_format["ref_strand"],
+            df_format["sam_text"],
+            df_format["just"],
+            df_format["blat_prev"],
+            df_format["blat_next"],
+        ):
+            hovertext = f"""
+<div>
+{sam_text}
+</div>
+<div style="{{display: flex; gap: 20px;}}">
+    <div style="{{flex: 1}}">
+        {blat_prev}
+    </div>
+    <div style="{{flex: 1}}">
+        {blat_next}
+    </div>
+</div>
+            """
+            fig.add_trace(
+                go.Scatter(
+                    x=[ref_start, ref_start, ref_end, ref_end],
+                    y=[y + 0.5, y - 0.5, y - 0.5, y + 0.5],
+                    fill="toself",
+                    fillcolor=cfg["color"][ref_strand][just],
+                    mode="none",
+                    name=hovertext,
+                    hoverlabel={
+                        "font": {
+                            "family": "Courier New, monospace",
+                            "size": 14,
+                            "color": "black",
+                        },
+                        "bgcolor": "white",
                     },
-                    "bgcolor": "white",
-                },
-                showlegend=False,
-            ),
-            row=1,
-            col=1,
-        )
+                    showlegend=False,
+                ),
+                row=1,
+                col=1,
+            )
 
+        assemble = treat2assemble(treat)
+        df_cpcdh = pd.read_csv(
+            cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv", header=0
+        )
         for start, end, name in zip(
             df_cpcdh["start"], df_cpcdh["end"], df_cpcdh["name"]
         ):

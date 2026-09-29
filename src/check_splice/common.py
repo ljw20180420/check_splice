@@ -692,10 +692,10 @@ class BlatSplice:
         self.blat = sh.Command("blat")
 
     def __call__(self, input: str, assemble: str) -> pd.DataFrame:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            # https://ucsc.crg.eu/FAQ/FAQblat.html for the parameter settings
-            self.blat(
+        # https://ucsc.crg.eu/FAQ/FAQblat.html for the parameter settings
+        result = "\n".join(
+            line
+            for line in self.blat(
                 "-out=blast8",
                 "-stepSize=5",
                 "-repMatch=2253",
@@ -703,36 +703,40 @@ class BlatSplice:
                 "-minIdentity=0",
                 self.databases[assemble],
                 "stdin",
-                os.fspath(tmpdir / "result.csv"),
+                "stdout",
                 _in=input,
+                _iter=True,
             )
+        )
 
-            result = (
-                pd
-                .read_csv(
-                    tmpdir / "result.csv",
-                    sep="\t",
-                    names=[
-                        "qseqid",
-                        "sseqid",
-                        "pident",
-                        "length",
-                        "mismatch",
-                        "gapopen",
-                        "qstart",
-                        "qend",
-                        "sstart",
-                        "send",
-                        "evalue",
-                        "bitscore",
-                    ],
-                )
-                .assign(match_base=lambda df: df["length"] * df["pident"] / 100)
-                .groupby("qseqid", as_index=False)["match_base"]
-                .max()
+        result = (
+            pd
+            .read_csv(
+                io.StringIO(result),
+                sep="\t",
+                names=[
+                    "qseqid",
+                    "sseqid",
+                    "pident",
+                    "length",
+                    "mismatch",
+                    "gapopen",
+                    "qstart",
+                    "qend",
+                    "sstart",
+                    "send",
+                    "evalue",
+                    "bitscore",
+                ],
             )
+            .assign(match_base=lambda df: df["length"] * df["pident"] / 100)
+            .groupby("qseqid", as_index=False)["match_base"]
+            .max()
+        )
 
-            self.blat(
+        detail = "\n".join(
+            line
+            for line in self.blat(
                 "-out=blast",
                 "-stepSize=5",
                 "-repMatch=2253",
@@ -740,17 +744,16 @@ class BlatSplice:
                 "-minIdentity=0",
                 self.databases[assemble],
                 "stdin",
-                os.fspath(tmpdir / "detail.txt"),
+                "stdout",
                 _in=input,
+                _iter=True,
             )
+        )
 
-            with open(tmpdir / "detail.txt", "r") as fd:
-                detail = fd.read()
-
-            detail = pd.DataFrame({"detail": detail.split("BLASTN")[1:]}).assign(
-                detail=lambda df: "BLASTN" + df["detail"],
-                qseqid=lambda df: df["detail"].str.extract(r"Query= (.+?)\n")[0],
-            )
+        detail = pd.DataFrame({"detail": detail.split("BLASTN")[1:]}).assign(
+            detail=lambda df: "BLASTN" + df["detail"],
+            qseqid=lambda df: df["detail"].str.extract(r"Query= (.+?)\n")[0],
+        )
 
         result = result.merge(
             detail,

@@ -18,8 +18,8 @@ def pcdh():
             "ROYAL": "#4169E1",
             "INCREASE": "#FF0000",
             "DECREASE": "#0000FF",
-            "+": "#FF0000",
-            "-": "#0000FF",
+            "+": {True: "#FF0000", False: "#FF00FF"},
+            "-": {True: "#0000FF", False: "#00FF00"},
         },
         "hg19": {
             "chrom": "chr5",
