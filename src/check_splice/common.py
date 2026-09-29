@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import tempfile
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
@@ -691,37 +692,74 @@ class BlatSplice:
         self.blat = sh.Command("blat")
 
     def __call__(self, input: str, assemble: str) -> pd.DataFrame:
-        # https://ucsc.crg.eu/FAQ/FAQblat.html for the parameter settings
-        result = self.blat(
-            "-out=blast8",
-            "-stepSize=5",
-            "-repMatch=2253",
-            "-minScore=0",
-            "-minIdentity=0",
-            self.databases[assemble],
-            "stdin",
-            "stdout",
-            _in=input,
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            # https://ucsc.crg.eu/FAQ/FAQblat.html for the parameter settings
+            self.blat(
+                "-out=blast8",
+                "-stepSize=5",
+                "-repMatch=2253",
+                "-minScore=0",
+                "-minIdentity=0",
+                self.databases[assemble],
+                "stdin",
+                os.fspath(tmpdir / "result.csv"),
+                _in=input,
+            )
+
+            result = (
+                pd
+                .read_csv(
+                    tmpdir / "result.csv",
+                    sep="\t",
+                    names=[
+                        "qseqid",
+                        "sseqid",
+                        "pident",
+                        "length",
+                        "mismatch",
+                        "gapopen",
+                        "qstart",
+                        "qend",
+                        "sstart",
+                        "send",
+                        "evalue",
+                        "bitscore",
+                    ],
+                )
+                .assign(match_base=lambda df: df["length"] * df["pident"] / 100)
+                .groupby("qseqid", as_index=False)["match_base"]
+                .max()
+            )
+
+            self.blat(
+                "-out=blast",
+                "-stepSize=5",
+                "-repMatch=2253",
+                "-minScore=0",
+                "-minIdentity=0",
+                self.databases[assemble],
+                "stdin",
+                os.fspath(tmpdir / "detail.txt"),
+                _in=input,
+            )
+
+            with open(tmpdir / "detail.txt", "r") as fd:
+                detail = fd.read()
+
+            detail = pd.DataFrame({"detail": detail.split("BLASTN")[1:]}).assign(
+                detail=lambda df: "BLASTN" + df["detail"],
+                qseqid=lambda df: df["detail"].str.extract(r"Query= (.+?)\n")[0],
+            )
+
+        result = result.merge(
+            detail,
+            how="left",
+            on="qseqid",
+            validate="one_to_one",
         )
 
-        return pd.read_csv(
-            io.StringIO(result),
-            sep="\t",
-            names=[
-                "qseqid",
-                "sseqid",
-                "pident",
-                "length",
-                "mismatch",
-                "gapopen",
-                "qstart",
-                "qend",
-                "sstart",
-                "send",
-                "evalue",
-                "bitscore",
-            ],
-        )
+        return result
 
 
 def donor_acceptor_to_strand(donor: pd.Series, acceptor: pd.Series) -> pd.Series:

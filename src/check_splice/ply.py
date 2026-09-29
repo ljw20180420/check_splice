@@ -6,6 +6,7 @@ import py2bit
 from Bio.Seq import Seq
 from plotly.subplots import make_subplots
 
+from .interact import BedpeJustIntronFilter
 from .utils import clone2assemble, clone2treat, get_merge_bam, treat2assemble
 
 
@@ -189,6 +190,7 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
         )
     )
 
+    bedpe_just_intron_filter = BedpeJustIntronFilter(cfg)
     df_merge = get_merge_bam(cfg)
     for exp, protein, treat in zip(
         df_merge["exp"], df_merge["protein"], df_merge["treat"]
@@ -201,22 +203,50 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
         df_cpcdh = pd.read_csv(
             cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv", header=0
         )
-        assert cluster in ["alpha", "beta", "gamma"], (
-            "cluster must be one of alpha, beta, gamma"
-        )
-        if cluster == "alpha":
-            df_cpcdh.query(
-                "name.str.lower().str.startswith('pcdha') or name.str.startswith('ace')"
-            ).reset_index(drop=True)
-        elif cluster == "beta":
-            df_cpcdh.query("name.str.lower().str.startswith('pcdhb')").reset_index(
-                drop=True
+
+        df_singles = []
+        for y, (ref_blocks, hovers) in enumerate(
+            zip(df_slice["ref_blocks"], df_slice["hovers"])
+        ):
+            ref_starts = []
+            ref_ends = []
+            ref_strands = []
+            for ref_block, hover in zip(ref_blocks.split(";"), hovers.split(";;")):
+                ref_chrom, ref_start, ref_end, ref_strand = ref_block.split(":")
+                ref_start, ref_end = int(ref_start), int(ref_end)
+
+                ref_starts.append(ref_start)
+                ref_ends.append(ref_end)
+                ref_strands.append(ref_strand)
+
+            df_single = pd.DataFrame({
+                "y": y,
+                "ref_start": ref_starts,
+                "ref_end": ref_ends,
+                "ref_strand": ref_strands,
+            })
+
+            assert len(df_single["ref_strand"].unique()) > 1, (
+                "read has inconsistent block strands"
             )
-        else:
-            # cluster == "gamma"
-            df_cpcdh.query(
-                "name.str.lower().str.startswith('pcdhg') or name.str.startswith('gce')"
-            ).reset_index(drop=True)
+
+            df_single["just"] = bedpe_just_intron_filter(
+                df_in=pd.DataFrame({
+                    "start1": df_single["ref_end"]
+                    .where(df_single["ref_strand"] == "+", df_single["ref_start"])
+                    .iloc[:-1],
+                    "start2": df_single["ref_start"]
+                    .where(df_single["ref_strand"] == "+", df_single["ref_end"])
+                    .iloc[1:],
+                }),
+                assemble=assemble,
+            ).any()
+            df_singles.append(df_single)
+
+        df_singles = pd.concat(
+            df_single,
+            ignore_index=True,
+        ).sort_values(by=["just", "ref_strand", "y"], ascending=[False, True, True])
 
         fig = make_subplots(
             rows=2,
@@ -228,34 +258,28 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
             ),
             row_heights=[0.95, 0.05],
         )
-        for y, (ref_blocks, hovers) in enumerate(
-            zip(df_slice["ref_blocks"], df_slice["hovers"])
-        ):
-            for ref_block, hover in zip(ref_blocks.split(";"), hovers.split(";;")):
-                ref_chrom, ref_start, ref_end, ref_strand = ref_block.split(":")
-                ref_start, ref_end = int(ref_start), int(ref_end)
 
-                fig.add_trace(
-                    go.Scatter(
-                        x=[ref_start, ref_start, ref_end, ref_end],
-                        y=[y + 0.5, y - 0.5, y - 0.5, y + 0.5],
-                        fill="toself",
-                        fillcolor=cfg["color"][ref_strand],
-                        mode="none",
-                        name=hover,
-                        hoverlabel={
-                            "font": {
-                                "family": "Courier New, monospace",
-                                "size": 14,
-                                "color": "black",
-                            },
-                            "bgcolor": "white",
-                        },
-                        showlegend=False,
-                    ),
-                    row=1,
-                    col=1,
-                )
+        fig.add_trace(
+            go.Scatter(
+                x=[ref_start, ref_start, ref_end, ref_end],
+                y=[y + 0.5, y - 0.5, y - 0.5, y + 0.5],
+                fill="toself",
+                fillcolor=cfg["color"][ref_strand],
+                mode="none",
+                name=hover,
+                hoverlabel={
+                    "font": {
+                        "family": "Courier New, monospace",
+                        "size": 14,
+                        "color": "black",
+                    },
+                    "bgcolor": "white",
+                },
+                showlegend=False,
+            ),
+            row=1,
+            col=1,
+        )
 
         for start, end, name in zip(
             df_cpcdh["start"], df_cpcdh["end"], df_cpcdh["name"]

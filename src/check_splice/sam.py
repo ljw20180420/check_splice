@@ -7,6 +7,7 @@ import sh
 
 from . import check
 from .common import (
+    BlatSplice,
     ParseSamRead,
     filter_bam_reads,
     get_cpcdh_intron,
@@ -115,6 +116,161 @@ def group_read_blocks(cfg: dict):
         )
     )
     df.to_feather(cfg["data_dir"] / "result" / "reads.feather")
+
+
+class ExpandSplice:
+    def __init__(self) -> None:
+        pass
+
+    def parse_blocks(self, ref_query_blocks: str) -> list:
+        ref_blocks, query_blocks, query = ref_query_blocks.split("|")
+        ref_blocks = ref_blocks.split(";")
+        query_blocks = query_blocks.split(";")
+        interact = []
+        for i in range(len(ref_blocks) - 1):
+            ref_block_chrom, ref_block_start, ref_block_end, ref_block_strand = (
+                ref_blocks[i].split(":")
+            )
+            ref_block_start, ref_block_end = int(ref_block_start), int(ref_block_end)
+            (
+                next_ref_block_chrom,
+                next_ref_block_start,
+                next_ref_block_end,
+                next_ref_block_strand,
+            ) = ref_blocks[i + 1].split(":")
+            next_ref_block_start, next_ref_block_end = (
+                int(next_ref_block_start),
+                int(next_ref_block_end),
+            )
+
+            query_block_start, query_block_end = query_blocks[i].split(":")
+            query_block_start, query_block_end = (
+                int(query_block_start),
+                int(query_block_end),
+            )
+            next_query_block_start, next_query_block_end = query_blocks[i + 1].split(
+                ":"
+            )
+            next_query_block_start, next_query_block_end = (
+                int(next_query_block_start),
+                int(next_query_block_end),
+            )
+
+            interact.append(
+                f"{ref_block_chrom}:{ref_block_start}:{ref_block_end}:{ref_block_strand}:{next_ref_block_chrom}:{next_ref_block_start}:{next_ref_block_end}:{next_ref_block_strand}:{query[query_block_start:next_query_block_end]}:{i}"
+            )
+
+        return interact
+
+    def __call__(self, cfg: dict):
+        df = (
+            pd
+            .read_feather(cfg["data_dir"] / "result" / "reads.feather")
+            .query("ref_blocks.str.contains(';')")
+            .reset_index(drop=True)
+            .assign(
+                ref_query_blocks=lambda df: (
+                    df["ref_blocks"] + "|" + df["query_blocks"] + "|" + df["query"]
+                ),
+                parse=lambda df: df["ref_query_blocks"].map(self.parse_blocks),
+            )[["exp", "protein", "clone", "rep", "query_name", "is_read1", "parse"]]
+            .explode("parse", ignore_index=True)
+        )
+
+        df = pd.concat(
+            [
+                df,
+                df["parse"]
+                .str.split(":", expand=True)
+                .rename(
+                    columns={
+                        0: "chrom1",
+                        1: "start1",
+                        2: "end1",
+                        3: "strand1",
+                        4: "chrom2",
+                        5: "start2",
+                        6: "end2",
+                        7: "strand2",
+                        8: "joint_block",
+                        9: "bidx",
+                    }
+                )
+                .astype({
+                    "start1": int,
+                    "end1": int,
+                    "start2": int,
+                    "end2": int,
+                    "bidx": int,
+                }),
+            ],
+            axis=1,
+        )
+
+        df = df.assign(
+            assemble=lambda df: df["clone"].map(clone2assemble),
+            uid=lambda df: (
+                df["assemble"]
+                + "_"
+                + df["exp"]
+                + "_"
+                + df["protein"]
+                + "_"
+                + df["clone"]
+                + "_"
+                + df["rep"]
+                + "_"
+                + df["query_name"]
+                + "_"
+                + df["is_read1"].map({True: "R1", False: "R2"})
+                + "_"
+                + df["bidx"].astype(str)
+            ),
+        )
+
+        blat_splice = BlatSplice(cfg)
+        blat_results = []
+        for assemble in df["assemble"].unique():
+            df_slice = df.query("assemble == @assemble").reset_index(drop=True)
+            blat_input = "\n".join(
+                ">" + df_slice["uid"] + "\n" + df_slice["joint_block"]
+            )
+            blat_result = blat_splice(blat_input, assemble)
+            blat_results.append(blat_result)
+
+        df = df.merge(
+            pd.concat(blat_results, ignore_index=True),
+            how="left",
+            left_on="uid",
+            right_on="qseqid",
+            validate="one_to_one",
+        ).assign(
+            match_base=lambda df: df["match_base"].fillna(0.0),
+            detail=lambda df: df["detail"].fillna(""),
+        )
+
+        df[
+            [
+                "exp",
+                "protein",
+                "clone",
+                "rep",
+                "query_name",
+                "is_read1",
+                "bidx",
+                "chrom1",
+                "start1",
+                "end1",
+                "strand1",
+                "chrom2",
+                "start2",
+                "end2",
+                "strand2",
+                "joint_block",
+                "match_base",
+                "detail",
+            ]
+        ].to_csv(cfg["data_dir"] / "result" / "expand_splice.csv", index=False)
 
 
 def merge_bam(cfg: dict) -> None:

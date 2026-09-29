@@ -86,6 +86,12 @@ cfg = config.pcdh()
 sam.group_read_blocks(cfg)
 
 # %%
+from check_splice import config, sam
+
+cfg = config.pcdh()
+sam.ExpandSplice()(cfg)
+
+# %%
 from check_splice import config, stat
 
 cfg = config.pcdh()
