@@ -171,7 +171,7 @@ def process_interact(
             df_bedpe["just"] = bedpe_just_intron_filter(
                 starts=df_bedpe["start1"],
                 ends=df_bedpe["start2"],
-                assemble=treat2assemble(treat),
+                assembles=treat2assemble(treat),
             )
             df_bedpe = df_bedpe.query(
                 "just and strand1 == '+' and strand2 == '+'"

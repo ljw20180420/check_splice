@@ -1,5 +1,6 @@
 import re
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import py2bit
@@ -137,19 +138,6 @@ def get_hovers(
     ])
 
 
-def in_range(cfg: dict, cluster: str, assemble: str, ref_blocks: str) -> bool:
-    chrom = cfg[assemble][cluster]["chrom"]
-    start = cfg[assemble][cluster]["start"]
-    end = cfg[assemble][cluster]["end"]
-    for ref_block in ref_blocks.split(";"):
-        ref_chrom, ref_start, ref_end, ref_strand = ref_block.split(":")
-        ref_start, ref_end = int(ref_start), int(ref_end)
-        if ref_chrom == chrom and ref_start >= start and ref_end <= end:
-            return True
-
-    return False
-
-
 def get_plotly_interact(cfg: dict, cluster: str) -> None:
     df = (
         pd
@@ -157,16 +145,27 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
         .query("ref_blocks.str.contains(';')")
         .reset_index(drop=True)
         .assign(
-            treat=lambda df: df["clone"].map(clone2treat),
             assemble=lambda df: df["clone"].map(clone2assemble),
-            assemble_ref_blocks=lambda df: df["assemble"] + "|" + df["ref_blocks"],
-            in_cluster=lambda df: df["assemble_ref_blocks"].map(
-                lambda assemble_ref_blocks: in_range(
-                    cfg, cluster, *assemble_ref_blocks.split("|")
-                )
+            cluster_chrom=lambda df: df["assemble"].map(
+                lambda assemble: cfg[assemble][cluster]["chrom"]
+            ),
+            cluster_start=lambda df: df["assemble"].map(
+                lambda assemble: cfg[assemble][cluster]["start"]
+            ),
+            cluster_end=lambda df: df["assemble"].map(
+                lambda assemble: cfg[assemble][cluster]["end"]
             ),
         )
-        .query("in_cluster")
+        .query(
+            """
+                chrom1 == cluster_chrom and \
+                start1 >= cluster_start and \
+                end1 <= cluster_end and \
+                chrom2 == cluster_chrom and \
+                start2 >= cluster_start and \
+                end2 <= cluster_end
+            """
+        )
         .reset_index(drop=True)
         .assign(
             args=lambda df: (
@@ -188,6 +187,55 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
                 lambda args: get_hovers(cfg, *args.split("|"))
             ),
         )
+    )
+
+    bedpe_just_intron_filter = BedpeJustIntronFilter(cfg)
+    df_expand = (
+        pd
+        .read_csv(cfg["data_dir"] / "result" / "expand_splice.csv", header=0)
+        .assign(
+            match_percent=lambda df: (
+                df["match_base"] / df["joint_block"].str.len() * 100
+            ),
+            detail=lambda df: df["detail"].str.replace("\n", "<br>"),
+            just=lambda df: bedpe_just_intron_filter(
+                starts=np.minimum(df["end1"], df["end2"]),
+                ends=np.maximum(df["start1"], df["start2"]),
+                assembles=df["clone"].map(clone2assemble),
+            ),
+        )
+        .sort_values(
+            by=["exp", "protein", "clone", "rep", "query_name", "is_read1", "bidx"]
+        )
+        .groupby(
+            ["exp", "protein", "clone", "rep", "query_name", "is_read1"], ax_index=False
+        )
+        .agg(
+            match_percent=pd.NamedAgg(
+                "match_percent", lambda se: ";".join(se.astype(str))
+            ),
+            detail=pd.NamedAgg("detail", lambda se: ";;".join(se)),
+            just=pd.NamedAgg("just", lambda se: ";;".join(se.astype(str))),
+        )
+    )
+
+    df = (
+        pd
+        .read_feather(cfg["data_dir"] / "result" / "reads.feather")
+        .query("ref_blocks.str.contains(';')")
+        .reset_index(drop=True)
+        .assign(
+            treat=lambda df: df["clone"].map(clone2treat),
+            assemble=lambda df: df["clone"].map(clone2assemble),
+            assemble_ref_blocks=lambda df: df["assemble"] + "|" + df["ref_blocks"],
+            in_cluster=lambda df: df["assemble_ref_blocks"].map(
+                lambda assemble_ref_blocks: in_range(
+                    cfg, cluster, *assemble_ref_blocks.split("|")
+                )
+            ),
+        )
+        .query("in_cluster")
+        .reset_index(drop=True)
     )
 
     bedpe_just_intron_filter = BedpeJustIntronFilter(cfg)

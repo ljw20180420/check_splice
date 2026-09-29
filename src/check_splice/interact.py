@@ -135,23 +135,30 @@ class BedpeJustIntronFilter:
             for assemble in ["hg19", "mm10"]
         }
 
-    def __call__(self, starts: pd.Series, ends: pd.Series, assemble: str) -> pd.Series:
+    def __call__(
+        self, starts: pd.Series, ends: pd.Series, assembles: str | pd.Series
+    ) -> pd.Series:
         masks = starts <= ends
-        return (
-            pd
-            .DataFrame({
-                "start": starts.where(masks, ends),
-                "end": ends.where(masks, starts),
-            })
-            .assign(**{
-                name: lambda df, start=start, end=end: (
-                    (df["start"] == start) & (df["end"] == end)
-                )
-                for start, end, name in zip(
-                    self.df_introns[assemble]["start"],
-                    self.df_introns[assemble]["end"],
-                    self.df_introns[assemble]["name"],
-                )
-            })[self.df_introns[assemble]["name"].tolist()]
-            .any(axis=1)
-        )
+        df = pd.DataFrame({
+            "start": starts.where(masks, ends),
+            "end": ends.where(masks, starts),
+            "assemble": assembles,
+        })
+        for assemble in df["assemble"].unique():
+            df["just"] = (
+                df
+                .query("assemble == @assemble")
+                .assign(**{
+                    name: lambda df, start=start, end=end: (
+                        (df["start"] == start) & (df["end"] == end)
+                    )
+                    for start, end, name in zip(
+                        self.df_introns[assemble]["start"],
+                        self.df_introns[assemble]["end"],
+                        self.df_introns[assemble]["name"],
+                    )
+                })[self.df_introns[assemble]["name"].tolist()]
+                .any(axis=1)
+            )
+
+        return df["just"]
