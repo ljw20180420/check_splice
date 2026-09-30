@@ -1,5 +1,8 @@
+- increase paper size
+- parse blat来得到更加紧凑的信息
+- 连接相邻的block，把joint的信息移到连接块上
+
 - plotly显示所有匹配，高亮当前匹配
-- plotly按照转录本范围排序
 
 - classify splice by strand, just, and blat
 

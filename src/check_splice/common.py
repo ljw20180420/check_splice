@@ -192,6 +192,25 @@ def get_cpcdh_exon(gtffile: os.PathLike, chrom: str) -> pd.DataFrame:
     return df
 
 
+def filter_cpcdh_cluster_exon(df_cpcdh: pd.DataFrame, cluster: str) -> pd.DataFrame:
+    if cluster == "alpha":
+        return df_cpcdh.query(
+            "name.str.lower().str.startswith('pcdha') or name.str.lower().str.startswith('ace')"
+        ).reset_index(drop=True)
+
+    if cluster == "beta":
+        return df_cpcdh.query("name.str.lower().str.startswith('pcdhb')").reset_index(
+            drop=True
+        )
+
+    assert cluster == "gamma", "cpcdh cluster must be alpha, beta, or gamma"
+
+    if cluster == "gamma":
+        return df_cpcdh.query(
+            "name.str.lower().str.startswith('pcdhg') or name.str.lower().str.startswith('gce')"
+        ).reset_index(drop=True)
+
+
 def get_cpcdh_intron(cpcdh_csv: os.PathLike) -> pd.DataFrame:
     df = pd.read_csv(cpcdh_csv, header=0)
 

@@ -140,6 +140,7 @@ class BedpeJustIntronFilter:
             "end": ends.where(masks, starts),
             "assemble": assembles,
         })
+        df["just"] = float("nan")
         for assemble in df["assemble"].unique():
             df["just"] = (
                 df
@@ -155,6 +156,7 @@ class BedpeJustIntronFilter:
                     )
                 })[self.df_introns[assemble]["name"].tolist()]
                 .any(axis=1)
+                .combine_first(df["just"])
             )
 
         return df["just"]

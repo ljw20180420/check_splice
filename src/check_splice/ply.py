@@ -7,6 +7,7 @@ import py2bit
 from Bio.Seq import Seq
 from plotly.subplots import make_subplots
 
+from .common import filter_cpcdh_cluster_exon
 from .interact import BedpeJustIntronFilter
 from .utils import clone2assemble, clone2treat, get_merge_bam, treat2assemble
 
@@ -138,18 +139,164 @@ def get_hovers(
     ])
 
 
-def get_plotly_interact(cfg: dict, cluster: str) -> None:
+def get_reads_with_details(cfg: dict) -> pd.DataFrame:
     df = (
         pd
         .read_feather(cfg["data_dir"] / "result" / "reads.feather")
         .query("ref_blocks.str.contains(';')")
         .reset_index(drop=True)
+    )
+
+    bedpe_just_intron_filter = BedpeJustIntronFilter(cfg)
+    df_expand = (
+        pd
+        .read_csv(
+            cfg["data_dir"] / "result" / "expand_splice.csv",
+            header=0,
+            keep_default_na=False,
+        )
         .assign(
-            assemble=lambda df: df["clone"].map(clone2assemble),
-            treat=lambda df: df["clone"].map(clone2treat),
-            cluster_chrom=lambda df: df["assemble"].map(
-                lambda assemble: cfg[assemble][cluster]["chrom"]
+            just=lambda df: bedpe_just_intron_filter(
+                starts=np.minimum(df["end1"], df["end2"]),
+                ends=np.maximum(df["start1"], df["start2"]),
+                assembles=df["clone"].map(clone2assemble),
             ),
+            match_percent=lambda df: (
+                df["match_base"] / df["joint_block"].str.len() * 100
+            ),
+            detail=lambda df: df["detail"].str.replace("\n", "<br>"),
+        )
+        .sort_values(by=["bidx"], ignore_index=True)
+        .groupby(
+            ["exp", "protein", "clone", "rep", "query_name", "is_read1"], as_index=False
+        )
+        .agg(
+            just=pd.NamedAgg(column="just", aggfunc=any),
+            match_percents=pd.NamedAgg(
+                column="match_percent", aggfunc=lambda se: ";".join(se.astype(str))
+            ),
+            details=pd.NamedAgg(column="detail", aggfunc=";;".join),
+        )
+    )
+
+    df = df.merge(
+        right=df_expand[
+            [
+                "exp",
+                "protein",
+                "clone",
+                "rep",
+                "query_name",
+                "is_read1",
+                "just",
+                "match_percents",
+                "details",
+            ]
+        ],
+        how="left",
+        on=[
+            "exp",
+            "protein",
+            "clone",
+            "rep",
+            "query_name",
+            "is_read1",
+        ],
+        validate="one_to_one",
+    )
+
+    return df
+
+
+def initialize_fig(
+    cfg: dict,
+    cluster: str,
+    exp: str,
+    protein: str,
+    treat: str,
+    max_ys: pd.Series,
+    rows: int,
+    block_num: int,
+) -> go.Figure:
+    max_ys = max_ys.reindex(list(range(1, rows))).fillna(0.0)
+    fig_height = (
+        cfg["plotly"]["block_height"] * (block_num + 2 + rows)
+        + cfg["plotly"]["vertical_spacing"] * 4
+        + cfg["plotly"]["top_margin"]
+        + cfg["plotly"]["bottom_margin"]
+    )
+    fig = make_subplots(
+        rows=rows,
+        cols=1,
+        shared_xaxes=True,
+        subplot_titles=(
+            "just +",
+            "just -",
+            "strange +",
+            "strange -",
+            "gene",
+        ),
+        row_heights=max_ys.to_list() + [1],
+        vertical_spacing=cfg["plotly"]["vertical_spacing"]
+        / (fig_height - cfg["plotly"]["top_margin"] - cfg["plotly"]["bottom_margin"]),
+    )
+    fig.update_layout(
+        title=f"{exp}_{protein}_{treat}",
+        height=fig_height,
+        margin={
+            "t": cfg["plotly"]["top_margin"],
+            "b": cfg["plotly"]["bottom_margin"],
+        },
+        hovermode="closest",
+    )
+    fig.update_xaxes(
+        range=[
+            cfg[treat2assemble(treat)][cluster]["start"],
+            cfg[treat2assemble(treat)][cluster]["end"],
+        ]
+    )
+    for row in range(1, 5):
+        fig.update_yaxes(range=[-1, max_ys.loc[row]], row=row, col=1)
+    fig.update_yaxes(range=[-2, 1], row=5, col=1)
+
+    return fig
+
+
+def get_plotly_interact(cfg: dict, cluster: str) -> None:
+    df = (
+        get_reads_with_details(cfg)
+        .assign(
+            strand=lambda df: (
+                df["ref_blocks"]
+                .str.split(";", n=1, expand=True)[0]
+                .str.rsplit(":", n=1, expand=True)[1]
+            ),
+            row=lambda df: (
+                df["just"].map({True: 0, False: 1}) * 2
+                + df["strand"].map({"+": 0, "-": 1})
+                + 1
+            ),
+            read_start=lambda df: np.minimum(
+                df["ref_blocks"]
+                .str.split(";", n=1, expand=True)[0]
+                .str.split(":", expand=True)[1]
+                .astype(int),
+                df["ref_blocks"]
+                .str.rsplit(";", n=1, expand=True)[1]
+                .str.split(":", expand=True)[1]
+                .astype(int),
+            ),
+            read_end=lambda df: np.maximum(
+                df["ref_blocks"]
+                .str.split(";", n=1, expand=True)[0]
+                .str.split(":", expand=True)[2]
+                .astype(int),
+                df["ref_blocks"]
+                .str.rsplit(";", n=1, expand=True)[1]
+                .str.split(":", expand=True)[2]
+                .astype(int),
+            ),
+            read_start_idx=lambda df: list(zip(df["read_start"], df.index)),
             cluster_start=lambda df: df["assemble"].map(
                 lambda assemble: cfg[assemble][cluster]["start"]
             ),
@@ -159,16 +306,14 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
         )
         .query(
             """
-                chrom1 == cluster_chrom and \
-                start1 >= cluster_start and \
-                end1 <= cluster_end and \
-                chrom2 == cluster_chrom and \
-                start2 >= cluster_start and \
-                end2 <= cluster_end
+                read_start >= cluster_start and \
+                read_end <= cluster_end
             """
         )
         .reset_index(drop=True)
         .assign(
+            assemble=lambda df: df["clone"].map(clone2assemble),
+            treat=lambda df: df["clone"].map(clone2treat),
             args=lambda df: (
                 df["assemble"]
                 + "|"
@@ -190,203 +335,98 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
         )
     )
 
-    bedpe_just_intron_filter = BedpeJustIntronFilter(cfg)
-    df_expand = (
-        pd
-        .read_csv(cfg["data_dir"] / "result" / "expand_splice.csv", header=0)
-        .assign(
-            just=lambda df: bedpe_just_intron_filter(
-                starts=np.minimum(df["end1"], df["end2"]),
-                ends=np.maximum(df["start1"], df["start2"]),
-                assembles=df["clone"].map(clone2assemble),
-            ),
-            match_percent=lambda df: (
-                df["match_base"] / df["joint_block"].str.len() * 100
-            ),
-            detail=lambda df: df["detail"].str.replace("\n", "<br>"),
-        )
-        .sort_values(
-            by=["exp", "protein", "clone", "rep", "query_name", "is_read1", "bidx"]
-        )
-        .groupby(
-            ["exp", "protein", "clone", "rep", "query_name", "is_read1"], ax_index=False
-        )
-        .agg(
-            just=pd.NamedAgg(column="just", aggfunc=any),
-            match_percents=pd.NamedAgg(
-                column="match_percent", aggfunc=lambda se: ";".join(se.astype(str))
-            ),
-            details=pd.NamedAgg(column="detail", aggfunc=";;".join),
-        )
-    )
-
-    df = df.merge(
-        right=df_expand[
-            "exp",
-            "protein",
-            "clone",
-            "rep",
-            "query_name",
-            "is_read1",
-            "just",
-            "match_percents",
-            "details",
-        ],
-        how="left",
-        on=[
-            "exp",
-            "protein",
-            "clone",
-            "rep",
-            "query_name",
-            "is_read1",
-        ],
-        validate="one_to_one",
-    )
-
     df_merge = get_merge_bam(cfg)
     for exp, protein, treat in zip(
         df_merge["exp"], df_merge["protein"], df_merge["treat"]
     ):
-        df_slice = df.query(
-            "exp == @exp and protein == @protein and treat == @treat"
-        ).reset_index(drop=True)
-
-        idxs = []
-        ref_starts = []
-        ref_ends = []
-        ref_strands = []
-        sam_texts = []
-        justs = []
-        blat_prevs = []
-        blat_nexts = []
-        for idx, (
-            ref_blocks,
-            hovers,
-            just,
-            match_percents,
-            details,
-        ) in enumerate(
-            zip(
-                df_slice["ref_blocks"],
-                df_slice["hovers"],
-                df_slice["just"],
-                df_slice["match_percents"],
-                df_slice["details"],
+        df_slice = (
+            df
+            .query("exp == @exp and protein == @protein and treat == @treat")
+            .reset_index(drop=True)
+            .assign(
+                y=lambda df: df.groupby(["just", "strand"])["read_start_idx"].rank(
+                    method="dense"
+                ),
             )
+        )
+
+        fig = initialize_fig(
+            cfg=cfg,
+            cluster=cluster,
+            exp=exp,
+            protein=protein,
+            treat=treat,
+            max_ys=df_slice["row"].value_counts(),
+            rows=5,
+            block_num=len(df_slice),
+        )
+
+        for ref_blocks, hovers, match_percents, details, row, y in zip(
+            df_slice["ref_blocks"],
+            df_slice["hovers"],
+            df_slice["match_percents"],
+            df_slice["details"],
+            df_slice["row"],
+            df_slice["y"],
         ):
-            for ref_block, hover in zip(ref_blocks.split(";"), hovers.split(";;")):
+            ref_blocks = ref_blocks.split(";")
+            hovers = hovers.split(";;")
+            match_percents = match_percents.split(";")
+            details = details.split(";;")
+            for bidx, (ref_block, hover) in enumerate(zip(ref_blocks, hovers)):
                 ref_chrom, ref_start, ref_end, ref_strand = ref_block.split(":")
                 ref_start, ref_end = int(ref_start), int(ref_end)
+                fig.add_trace(
+                    go.Scatter(
+                        x=[ref_start, ref_start, ref_end, ref_end],
+                        y=[y + 0.5, y - 0.5, y - 0.5, y + 0.5],
+                        mode="lines",
+                        line=cfg["plotly"]["line"],
+                        fill="toself",
+                        fillcolor=cfg["plotly"]["fillcolor"],
+                        name=hover,
+                        hoverlabel=cfg["plotly"]["hoverlabel"],
+                        showlegend=False,
+                    ),
+                    row=row,
+                    col=1,
+                )
 
-                idxs.append(idx)
-                ref_starts.append(ref_start)
-                ref_ends.append(ref_end)
-                ref_strands.append(ref_strand)
-                sam_texts.append(hover)
-                justs.append(just)
-
-            blat_prevs.append("N/A")
-            for match_percent, detail in zip(
-                match_percents.split(";"), details.split(";;")
-            ):
-                blat_string = f"match_percent: {match_percent}<br>{detail}"
-                blat_prevs.append(blat_string)
-                blat_nexts.append(blat_string)
-            blat_nexts.append("N/A")
-
-        df_format = (
-            pd
-            .DataFrame({
-                "idx": idxs,
-                "ref_start": ref_starts,
-                "ref_end": ref_ends,
-                "ref_strand": ref_strands,
-                "sam_text": sam_texts,
-                "just": justs,
-                "blat_prev": blat_prevs,
-                "blat_next": blat_nexts,
-            })
-            .sort_values(by=["ref_start", "ref_end"], ignore_index=True)
-            .assign(
-                just_idx=lambda df: df["just"].map({True: 0, False: 1}),
-                ref_strand_idx=lambda df: df["ref_strand"].map({"-": 0, "+": 1}),
-                y=lambda df: df.groupby([
-                    "just_idx",
-                    "ref_strand_idx",
-                    "idx",
-                ]).transform("ngroup"),
-            )
-        )
-
-        fig = make_subplots(
-            rows=2,
-            cols=1,
-            shared_xaxes=True,
-            subplot_titles=(
-                "splice",
-                "gene",
-            ),
-            row_heights=[0.95, 0.05],
-        )
-
-        for (
-            ref_start,
-            ref_end,
-            y,
-            ref_strand,
-            sam_text,
-            just,
-            blat_prev,
-            blat_next,
-        ) in zip(
-            df_format["ref_start"],
-            df_format["ref_end"],
-            df_format["y"],
-            df_format["ref_strand"],
-            df_format["sam_text"],
-            df_format["just"],
-            df_format["blat_prev"],
-            df_format["blat_next"],
-        ):
-            hovertext = f"""
-<div>
-{sam_text}
-</div>
-<div style="{{display: flex; gap: 20px;}}">
-    <div style="{{flex: 1}}">
-        {blat_prev}
-    </div>
-    <div style="{{flex: 1}}">
-        {blat_next}
-    </div>
-</div>
-            """
-            fig.add_trace(
-                go.Scatter(
-                    x=[ref_start, ref_start, ref_end, ref_end],
-                    y=[y + 0.5, y - 0.5, y - 0.5, y + 0.5],
-                    fill="toself",
-                    fillcolor=cfg["color"][ref_strand][just],
-                    mode="none",
-                    name=hovertext,
-                    hoverlabel={
-                        "font": {
-                            "family": "Courier New, monospace",
-                            "size": 14,
-                            "color": "black",
-                        },
-                        "bgcolor": "white",
-                    },
-                    showlegend=False,
-                ),
-                row=1,
-                col=1,
-            )
+                if bidx < len(match_percents):
+                    next_ref_block = ref_blocks[bidx + 1]
+                    match_percent = match_percents[bidx]
+                    detail = details[bidx]
+                    next_ref_chrom, next_ref_start, next_ref_end, next_ref_strand = (
+                        next_ref_block.split(":")
+                    )
+                    next_ref_start, next_ref_end = (
+                        int(next_ref_start),
+                        int(next_ref_end),
+                    )
+                    link_start = min(ref_end, next_ref_end)
+                    link_end = max(ref_start, next_ref_start)
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[link_start, link_start, link_end, link_end],
+                            y=[y + 0.25, y - 0.25, y - 0.25, y + 0.25],
+                            mode="lines",
+                            line=cfg["plotly"]["line"],
+                            fill="toself",
+                            fillcolor=cfg["plotly"]["fillcolor"],
+                            name=f"match percent: {match_percent}",
+                            hoverlabel=cfg["plotly"]["hoverlabel"],
+                            showlegend=False,
+                        ),
+                        row=row,
+                        col=1,
+                    )
 
         assemble = treat2assemble(treat)
-        df_cpcdh = pd.read_csv(
-            cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv", header=0
+        df_cpcdh = filter_cpcdh_cluster_exon(
+            df_cpcdh=pd.read_csv(
+                cfg["data_dir"] / "result" / f"{assemble}_cpcdh.csv", header=0
+            ),
+            cluster=cluster,
         )
         for start, end, name in zip(
             df_cpcdh["start"], df_cpcdh["end"], df_cpcdh["name"]
@@ -397,45 +437,23 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
                     y=[0.5, -0.5, -0.5, 0.5],
                     mode="none",
                     fill="toself",
-                    fillcolor="blue",
+                    fillcolor=cfg["plotly"]["fillcolor"],
                     name=name,
-                    hoverlabel={
-                        "font": {
-                            "family": "Courier New, monospace",
-                            "size": 14,
-                            "color": "black",
-                        },
-                        "bgcolor": "white",
-                    },
+                    hoverlabel=cfg["plotly"]["hoverlabel"],
                     showlegend=False,
                 ),
-                row=2,
+                row=5,
                 col=1,
             )
             fig.add_annotation(
                 x=(start + end) / 2,
                 y=-1,
                 text=name,
-                font={
-                    "size": 8,
-                },
+                font=cfg["plotly"]["font"],
                 showarrow=False,
-                row=2,
+                row=5,
                 col=1,
             )
-
-        fig.update_layout(
-            title=f"{exp}_{protein}_{treat}",
-            hovermode="closest",
-        )
-        fig.update_xaxes(
-            range=[
-                cfg[treat2assemble(treat)][cluster]["start"],
-                cfg[treat2assemble(treat)][cluster]["end"],
-            ]
-        )
-        fig.update_yaxes(range=[-1, len(df_slice)], row=1, col=1)
-        fig.update_yaxes(range=[-2, 1], row=2, col=1)
 
         fig.write_html(
             cfg["data_dir"]

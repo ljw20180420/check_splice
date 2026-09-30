@@ -18,8 +18,6 @@ def pcdh():
             "ROYAL": "#4169E1",
             "INCREASE": "#FF0000",
             "DECREASE": "#0000FF",
-            "+": {True: "#FF0000", False: "#FF00FF"},
-            "-": {True: "#0000FF", False: "#00FF00"},
         },
         "hg19": {
             "chrom": "chr5",
@@ -64,5 +62,25 @@ def pcdh():
                 "end": 37904446,
             },
             "2bit": "/home/ljw/sdb1/ucsc/hubs/myHub/lmm10/lmm10.2bit",
+        },
+        "ploty": {
+            "top_margin": 80,
+            "bottom_marge": 60,
+            "vertical_spacing": 60,
+            "block_height": 20,
+            "hoverlabel": {
+                "font": {
+                    "family": "Courier New, monospace",
+                    "size": 14,
+                    "color": "black",
+                },
+                "bgcolor": "white",
+                "namelength": 0,
+            },
+            "line": {"color": "black"},
+            "fillcolor": "gray",
+            "font": {
+                "size": 8,
+            },
         },
     }
