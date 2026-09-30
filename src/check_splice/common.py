@@ -712,7 +712,7 @@ class BlatSplice:
 
     def __call__(self, input: str, assemble: str) -> pd.DataFrame:
         # https://ucsc.crg.eu/FAQ/FAQblat.html for the parameter settings
-        result = "\n".join(
+        result = "".join(
             line
             for line in self.blat(
                 "-out=blast8",
@@ -728,7 +728,7 @@ class BlatSplice:
             )
         )
 
-        result = (
+        df_result = (
             pd
             .read_csv(
                 io.StringIO(result),
@@ -753,10 +753,10 @@ class BlatSplice:
             .max()
         )
 
-        detail = "\n".join(
+        detail = "".join(
             line
             for line in self.blat(
-                "-out=blast",
+                "-out=axt",
                 "-stepSize=5",
                 "-repMatch=2253",
                 "-minScore=0",
@@ -769,19 +769,25 @@ class BlatSplice:
             )
         )
 
-        detail = pd.DataFrame({"detail": detail.split("BLASTN")[1:]}).assign(
-            detail=lambda df: "BLASTN" + df["detail"],
-            qseqid=lambda df: df["detail"].str.extract(r"Query= (.+?)\n")[0],
+        df_detail = pd.DataFrame({"detail": detail.split("\n\n")[:-1]})
+        extracted = df_detail["detail"].str.extract(
+            r"^\d+? .+? \d+? \d+? (.+?) (\d+?) (\d+?) [+-] \d+\n"
         )
+        df_detail = df_detail.assign(
+            qseqid=extracted[0],
+            qmap_length=extracted[2].astype(int) - extracted[1].astype(int) + 1,
+        )
+        idxmax = df_detail.groupby("qseqid")["qmap_length"].idxmax()
+        df_detail = df_detail.loc[idxmax].reset_index(drop=True)[["qseqid", "detail"]]
 
-        result = result.merge(
-            detail,
+        df_result = df_result.merge(
+            df_detail,
             how="left",
             on="qseqid",
             validate="one_to_one",
         )
 
-        return result
+        return df_result
 
 
 def donor_acceptor_to_strand(donor: pd.Series, acceptor: pd.Series) -> pd.Series:

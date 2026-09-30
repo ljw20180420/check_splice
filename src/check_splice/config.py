@@ -63,9 +63,9 @@ def pcdh():
             },
             "2bit": "/home/ljw/sdb1/ucsc/hubs/myHub/lmm10/lmm10.2bit",
         },
-        "ploty": {
+        "plotly": {
             "top_margin": 80,
-            "bottom_marge": 60,
+            "bottom_margin": 60,
             "vertical_spacing": 60,
             "block_height": 20,
             "hoverlabel": {
@@ -77,8 +77,10 @@ def pcdh():
                 "bgcolor": "white",
                 "namelength": 0,
             },
-            "line": {"color": "black"},
-            "fillcolor": "gray",
+            "fillcolor": {
+                "map": "gray",
+                "link": "black",
+            },
             "font": {
                 "size": 8,
             },

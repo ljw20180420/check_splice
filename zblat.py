@@ -28,10 +28,9 @@ with py2bit.open(db) as tb:
 
     seq = seq1 + seq2
 
-print(len(seq))
 blat = sh.Command("blat")
 result = blat(
-    "-out=blast8",
+    "-out=axt",
     "-stepSize=5",
     "-repMatch=2253",
     "-minScore=0",
@@ -39,26 +38,7 @@ result = blat(
     f"{db}:chr18:36923470-37904446",
     "stdin",
     "stdout",
-    _in=f">seq\n{seq}\n",
+    _in=f">seq1\n{seq}\n>seq2\n{seq}\n",
 )
 
-df = pd.read_csv(
-    io.StringIO(result),
-    sep="\t",
-    names=[
-        "qseqid",
-        "sseqid",
-        "pident",
-        "length",
-        "mismatch",
-        "gapopen",
-        "qstart",
-        "qend",
-        "sstart",
-        "send",
-        "evalue",
-        "bitscore",
-    ],
-)
-
-print(df)
+print(result)

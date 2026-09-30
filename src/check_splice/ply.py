@@ -297,6 +297,8 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
                 .astype(int),
             ),
             read_start_idx=lambda df: list(zip(df["read_start"], df.index)),
+            assemble=lambda df: df["clone"].map(clone2assemble),
+            treat=lambda df: df["clone"].map(clone2treat),
             cluster_start=lambda df: df["assemble"].map(
                 lambda assemble: cfg[assemble][cluster]["start"]
             ),
@@ -312,8 +314,6 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
         )
         .reset_index(drop=True)
         .assign(
-            assemble=lambda df: df["clone"].map(clone2assemble),
-            treat=lambda df: df["clone"].map(clone2treat),
             args=lambda df: (
                 df["assemble"]
                 + "|"
@@ -344,8 +344,11 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
             .query("exp == @exp and protein == @protein and treat == @treat")
             .reset_index(drop=True)
             .assign(
-                y=lambda df: df.groupby(["just", "strand"])["read_start_idx"].rank(
-                    method="dense"
+                y=lambda df: (
+                    df.groupby(["just", "strand"])["read_start_idx"].rank(
+                        method="dense"
+                    )
+                    - 1
                 ),
             )
         )
@@ -379,11 +382,10 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
                 fig.add_trace(
                     go.Scatter(
                         x=[ref_start, ref_start, ref_end, ref_end],
-                        y=[y + 0.5, y - 0.5, y - 0.5, y + 0.5],
-                        mode="lines",
-                        line=cfg["plotly"]["line"],
+                        y=[y + 0.4, y - 0.4, y - 0.4, y + 0.4],
+                        mode="none",
                         fill="toself",
-                        fillcolor=cfg["plotly"]["fillcolor"],
+                        fillcolor=cfg["plotly"]["fillcolor"]["map"],
                         name=hover,
                         hoverlabel=cfg["plotly"]["hoverlabel"],
                         showlegend=False,
@@ -408,12 +410,11 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
                     fig.add_trace(
                         go.Scatter(
                             x=[link_start, link_start, link_end, link_end],
-                            y=[y + 0.25, y - 0.25, y - 0.25, y + 0.25],
-                            mode="lines",
-                            line=cfg["plotly"]["line"],
+                            y=[y + 0.2, y - 0.2, y - 0.2, y + 0.2],
+                            mode="none",
                             fill="toself",
-                            fillcolor=cfg["plotly"]["fillcolor"],
-                            name=f"match percent: {match_percent}",
+                            fillcolor=cfg["plotly"]["fillcolor"]["link"],
+                            name=f"match percent: {match_percent}<br>{detail}",
                             hoverlabel=cfg["plotly"]["hoverlabel"],
                             showlegend=False,
                         ),
