@@ -219,12 +219,17 @@ def initialize_fig(
     block_num: int,
 ) -> go.Figure:
     max_ys = max_ys.reindex(list(range(1, rows))).fillna(0.0)
+    total_bottom_margin = cfg["plotly"]["bottom_margin"] + cfg["plotly"]["range_slider"]
+    total_vertical_spacing = (
+        cfg["plotly"]["vertical_spacing"] + cfg["plotly"]["range_slider"]
+    )
     fig_height = (
         cfg["plotly"]["block_height"] * (block_num + 2 + rows)
-        + cfg["plotly"]["vertical_spacing"] * 4
+        + total_vertical_spacing * (rows - 1)
         + cfg["plotly"]["top_margin"]
-        + cfg["plotly"]["bottom_margin"]
+        + total_bottom_margin
     )
+    row_heights = [bn + 1 for bn in max_ys.to_list() + [2]]
     fig = make_subplots(
         rows=rows,
         cols=1,
@@ -236,16 +241,16 @@ def initialize_fig(
             "strange -",
             "gene",
         ),
-        row_heights=max_ys.to_list() + [1],
-        vertical_spacing=cfg["plotly"]["vertical_spacing"]
-        / (fig_height - cfg["plotly"]["top_margin"] - cfg["plotly"]["bottom_margin"]),
+        row_heights=row_heights,
+        vertical_spacing=total_vertical_spacing
+        / (fig_height - cfg["plotly"]["top_margin"] - total_bottom_margin),
     )
     fig.update_layout(
         title=f"{exp}_{protein}_{treat}",
         height=fig_height,
         margin={
             "t": cfg["plotly"]["top_margin"],
-            "b": cfg["plotly"]["bottom_margin"],
+            "b": total_bottom_margin,
         },
         hovermode="closest",
     )
@@ -253,10 +258,20 @@ def initialize_fig(
         range=[
             cfg[treat2assemble(treat)][cluster]["start"],
             cfg[treat2assemble(treat)][cluster]["end"],
-        ]
+        ],
+        rangeslider={
+            "visible": True,
+            "thickness": cfg["plotly"]["range_slider"]
+            / (
+                fig_height
+                - cfg["plotly"]["top_margin"]
+                - total_bottom_margin
+                - total_vertical_spacing * (rows - 1)
+            ),
+        },
     )
     for row in range(1, 5):
-        fig.update_yaxes(range=[-1, max_ys.loc[row]], row=row, col=1)
+        fig.update_yaxes(range=[-1, max_ys.loc[row]], fixedrange=True, row=row, col=1)
     fig.update_yaxes(range=[-2, 1], row=5, col=1)
 
     return fig
@@ -413,7 +428,7 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
                             y=[y + 0.2, y - 0.2, y - 0.2, y + 0.2],
                             mode="none",
                             fill="toself",
-                            fillcolor=cfg["plotly"]["fillcolor"]["link"],
+                            fillcolor=cfg["plotly"]["fillcolor"]["splice"],
                             name=f"match percent: {match_percent}<br>{detail}",
                             hoverlabel=cfg["plotly"]["hoverlabel"],
                             showlegend=False,
@@ -438,7 +453,7 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
                     y=[0.5, -0.5, -0.5, 0.5],
                     mode="none",
                     fill="toself",
-                    fillcolor=cfg["plotly"]["fillcolor"],
+                    fillcolor=cfg["plotly"]["fillcolor"]["exon"],
                     name=name,
                     hoverlabel=cfg["plotly"]["hoverlabel"],
                     showlegend=False,

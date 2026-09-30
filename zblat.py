@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 
-import io
 import sys
 
-import pandas as pd
 import py2bit
 import sh
 from Bio.Seq import Seq

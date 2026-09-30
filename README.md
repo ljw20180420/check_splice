@@ -1,4 +1,5 @@
 - plotly显示所有匹配，高亮当前匹配
+- sticky gene axes
 
 - plotly
 
