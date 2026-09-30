@@ -1,8 +1,6 @@
 - plotly
   - learn
   - plotly显示所有匹配，高亮当前匹配
-  - sticky gene axes
-    - remove gene axes from scroll html
 
 - coolbox
   - Browser
