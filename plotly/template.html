@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="./js/plotly.min.js" charset="utf-8"></script>
+    <style>
+        .sticky-container {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .scroll-container {
+        }
+    </style>
+</head>
+<body>
+
+    <div class="sticky-container">
+        {{ sticky_html }}
+    </div>
+
+    <div class="scroll-container">
+        {{ scroll_html }}
+    </div>
+
+    <script>
+        const stickyChart = document.querySelector('div.sticky-container > div > div.plotly-graph-div');
+        const scrollChart = document.querySelector('div.scroll-container > div > div.plotly-graph-div');
+
+        let isSyncing = false;
+        function syncCharts(source, target) {
+            source.on('plotly_relayout', function(eventData) {
+                if (isSyncing) return;
+                
+                
+                if (eventData['xaxis.range[0]'] !== undefined) {
+                    isSyncing = true;
+                    Plotly.relayout(target, {
+                        'xaxis.range[0]': eventData['xaxis.range[0]'],
+                        'xaxis.range[1]': eventData['xaxis.range[1]']
+                    }).then(() => { isSyncing = false; });
+                } else if (eventData['xaxis.range'] !== undefined) {
+                    isSyncing = true;
+                    Plotly.relayout(target, {
+                        'xaxis.range[0]': eventData['xaxis.range'][0],
+                        'xaxis.range[1]': eventData['xaxis.range'][1]
+                    }).then(() => { isSyncing = false; });
+                } else if (eventData['xaxis.autorange'] !== undefined) {
+                    isSyncing = true;
+                    Plotly.relayout(target, { 'xaxis.autorange': true }).then(() => { isSyncing = false; });
+                }
+            });
+        }
+
+        syncCharts(stickyChart, scrollChart);
+        syncCharts(scrollChart, stickyChart);
+    </script>
+
+</body>
+</html>

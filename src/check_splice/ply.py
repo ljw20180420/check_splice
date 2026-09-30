@@ -1,11 +1,15 @@
+import os
 import re
 
+import jinja2
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import py2bit
 from Bio.Seq import Seq
-from plotly.subplots import make_subplots
+
+import plotly
+from plotly import subplots
 
 from .common import filter_cpcdh_cluster_exon
 from .interact import BedpeJustIntronFilter
@@ -215,22 +219,22 @@ def initialize_fig(
     protein: str,
     treat: str,
     max_ys: pd.Series,
-    rows: int,
     block_num: int,
 ) -> go.Figure:
-    max_ys = max_ys.reindex(list(range(1, rows))).fillna(0.0)
+    rows = 4
+    max_ys = max_ys.reindex(list(range(1, rows + 1))).fillna(0.0)
     total_bottom_margin = cfg["plotly"]["bottom_margin"] + cfg["plotly"]["range_slider"]
     total_vertical_spacing = (
         cfg["plotly"]["vertical_spacing"] + cfg["plotly"]["range_slider"]
     )
     fig_height = (
-        cfg["plotly"]["block_height"] * (block_num + 2 + rows)
+        cfg["plotly"]["block_height"] * (block_num + rows)
         + total_vertical_spacing * (rows - 1)
         + cfg["plotly"]["top_margin"]
         + total_bottom_margin
     )
-    row_heights = [bn + 1 for bn in max_ys.to_list() + [2]]
-    fig = make_subplots(
+    row_heights = [bn + 1 for bn in max_ys.to_list()]
+    fig = subplots.make_subplots(
         rows=rows,
         cols=1,
         shared_xaxes=True,
@@ -239,7 +243,6 @@ def initialize_fig(
             "just -",
             "strange +",
             "strange -",
-            "gene",
         ),
         row_heights=row_heights,
         vertical_spacing=total_vertical_spacing
@@ -262,19 +265,54 @@ def initialize_fig(
         rangeslider={
             "visible": True,
             "thickness": cfg["plotly"]["range_slider"]
-            / (
-                fig_height
-                - cfg["plotly"]["top_margin"]
-                - total_bottom_margin
-                - total_vertical_spacing * (rows - 1)
-            ),
+            / (fig_height - cfg["plotly"]["top_margin"] - total_bottom_margin),
         },
     )
-    for row in range(1, 5):
+    for row in range(1, rows + 1):
         fig.update_yaxes(range=[-1, max_ys.loc[row]], fixedrange=True, row=row, col=1)
-    fig.update_yaxes(range=[-2, 1], row=5, col=1)
 
     return fig
+
+
+def initialize_gene_fig(cfg: dict, cluster: str, assemble: str) -> go.Figure:
+    total_bottom_margin = cfg["plotly"]["bottom_margin"] + cfg["plotly"]["range_slider"]
+    fig_height = (
+        cfg["plotly"]["block_height"] * 3
+        + cfg["plotly"]["top_margin"]
+        + total_bottom_margin
+    )
+    fig = go.Figure()
+    fig.update_layout(
+        title=cluster,
+        height=fig_height,
+        margin={
+            "t": cfg["plotly"]["top_margin"],
+            "b": total_bottom_margin,
+        },
+        hovermode="closest",
+    )
+    fig.update_xaxes(
+        range=[
+            cfg[assemble][cluster]["start"],
+            cfg[assemble][cluster]["end"],
+        ],
+        rangeslider={
+            "visible": True,
+            "thickness": 1.0,
+        },
+    )
+    fig.update_yaxes(range=[-2, 1], fixedrange=True)
+
+    return fig
+
+
+def jinja2_render(data: dict, output_file: os.PathLike) -> None:
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader("./plotly"))
+    template = env.get_template("template.html")
+    final_html = template.render(data)
+
+    with open(output_file, "w", encoding="utf-8") as fd:
+        fd.write(final_html)
 
 
 def get_plotly_interact(cfg: dict, cluster: str) -> None:
@@ -375,8 +413,10 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
             protein=protein,
             treat=treat,
             max_ys=df_slice["row"].value_counts(),
-            rows=5,
             block_num=len(df_slice),
+        )
+        gene_fig = initialize_gene_fig(
+            cfg=cfg, cluster=cluster, assemble=treat2assemble(treat)
         )
 
         for ref_blocks, hovers, match_percents, details, row, y in zip(
@@ -447,7 +487,7 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
         for start, end, name in zip(
             df_cpcdh["start"], df_cpcdh["end"], df_cpcdh["name"]
         ):
-            fig.add_trace(
+            gene_fig.add_trace(
                 go.Scatter(
                     x=[start, start, end, end],
                     y=[0.5, -0.5, -0.5, 0.5],
@@ -458,23 +498,27 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
                     hoverlabel=cfg["plotly"]["hoverlabel"],
                     showlegend=False,
                 ),
-                row=5,
-                col=1,
             )
-            fig.add_annotation(
+            gene_fig.add_annotation(
                 x=(start + end) / 2,
                 y=-1,
                 text=name,
                 font=cfg["plotly"]["font"],
                 showarrow=False,
-                row=5,
-                col=1,
             )
 
-        fig.write_html(
-            cfg["data_dir"]
+        jinja2_render(
+            data={
+                "sticky_html": plotly.offline.plot(
+                    gene_fig, include_plotlyjs=False, output_type="div"
+                ),
+                "scroll_html": plotly.offline.plot(
+                    fig, include_plotlyjs=False, output_type="div"
+                ),
+            },
+            output_file=cfg["data_dir"]
             / "result"
             / "hic"
             / "plotly"
-            / f"{exp}_{protein}_{treat}.html"
+            / f"{exp}_{protein}_{treat}.html",
         )
