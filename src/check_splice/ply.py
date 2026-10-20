@@ -17,7 +17,6 @@ from .utils import clone2assemble, clone2treat, get_merge_bam, treat2assemble
 
 def get_plotly_config():
     return {
-        "scrollZoom": True,
         "displaylogo": False,
         "modeBarButtonsToAdd": [
             "downloadJson",
