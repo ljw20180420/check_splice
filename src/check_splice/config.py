@@ -68,7 +68,8 @@ def pcdh():
             "bottom_margin": 60,
             "vertical_spacing": 60,
             "block_height": 20,
-            "range_slider": 80,
+            # "range_slider": 80,
+            "range_slider": 0,
             "hoverlabel": {
                 "font": {
                     "family": "Courier New, monospace",

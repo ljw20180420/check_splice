@@ -8,12 +8,33 @@ import plotly.graph_objects as go
 import py2bit
 from Bio.Seq import Seq
 
-import plotly
 from plotly import subplots
 
 from .common import filter_cpcdh_cluster_exon
 from .interact import BedpeJustIntronFilter
 from .utils import clone2assemble, clone2treat, get_merge_bam, treat2assemble
+
+
+def get_plotly_config():
+    return {
+        "scrollZoom": True,
+        "displaylogo": False,
+        "toImageButtonOptions": {
+            "format": "svg",
+            "filename": "custom_image",
+            "height": None,
+            "width": None,
+        },
+        "modeBarButtonsToAdd": [
+            "downloadJson",
+            "drawline",
+            "drawopenpath",
+            "drawclosedpath",
+            "drawcircle",
+            "drawrect",
+            "eraseshape",
+        ],
+    }
 
 
 def get_hover(
@@ -262,11 +283,11 @@ def initialize_fig(
             cfg[treat2assemble(treat)][cluster]["start"],
             cfg[treat2assemble(treat)][cluster]["end"],
         ],
-        rangeslider={
-            "visible": True,
-            "thickness": cfg["plotly"]["range_slider"]
-            / (fig_height - cfg["plotly"]["top_margin"] - total_bottom_margin),
-        },
+        # rangeslider={
+        #     "visible": True,
+        #     "thickness": cfg["plotly"]["range_slider"]
+        #     / (fig_height - cfg["plotly"]["top_margin"] - total_bottom_margin),
+        # },
     )
     for row in range(1, rows + 1):
         fig.update_yaxes(range=[-1, max_ys.loc[row]], fixedrange=True, row=row, col=1)
@@ -296,10 +317,10 @@ def initialize_gene_fig(cfg: dict, cluster: str, assemble: str) -> go.Figure:
             cfg[assemble][cluster]["start"],
             cfg[assemble][cluster]["end"],
         ],
-        rangeslider={
-            "visible": True,
-            "thickness": 1.0,
-        },
+        # rangeslider={
+        #     "visible": True,
+        #     "thickness": 1.0,
+        # },
     )
     fig.update_yaxes(range=[-2, 1], fixedrange=True)
 
@@ -415,6 +436,7 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
             max_ys=df_slice["row"].value_counts(),
             block_num=len(df_slice),
         )
+
         gene_fig = initialize_gene_fig(
             cfg=cfg, cluster=cluster, assemble=treat2assemble(treat)
         )
@@ -509,12 +531,10 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
 
         jinja2_render(
             data={
-                "sticky_html": plotly.offline.plot(
-                    gene_fig, include_plotlyjs=False, output_type="div"
+                "sticky_html": gene_fig.to_html(
+                    include_plotlyjs=False, full_html=False
                 ),
-                "scroll_html": plotly.offline.plot(
-                    fig, include_plotlyjs=False, output_type="div"
-                ),
+                "scroll_html": fig.to_html(include_plotlyjs=False, full_html=False),
             },
             output_file=cfg["data_dir"]
             / "result"
