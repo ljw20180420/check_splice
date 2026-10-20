@@ -532,9 +532,11 @@ def get_plotly_interact(cfg: dict, cluster: str) -> None:
         jinja2_render(
             data={
                 "sticky_html": gene_fig.to_html(
-                    include_plotlyjs=False, full_html=False
+                    config=get_plotly_config(), include_plotlyjs=False, full_html=False
                 ),
-                "scroll_html": fig.to_html(include_plotlyjs=False, full_html=False),
+                "scroll_html": fig.to_html(
+                    config=get_plotly_config(), include_plotlyjs=False, full_html=False
+                ),
             },
             output_file=cfg["data_dir"]
             / "result"
