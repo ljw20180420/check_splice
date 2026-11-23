@@ -88,4 +88,7 @@ def pcdh():
                 "size": 8,
             },
         },
+        "explore": {
+            "min_mh": 10,
+        },
     }

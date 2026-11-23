@@ -16,6 +16,8 @@ def check_RS_at_exon_tail(cfg: dict):
 
 
 def recursive_microhomology(seq1: str, seq2: str) -> pd.DataFrame:
+    seq1 = seq1.upper()
+    seq2 = seq2.upper()
     mask_matrix = np.pad(
         array=np.array(list(seq1))[:, None] == np.array(list(seq2)),
         pad_width=((1, 0), (1, 0)),
@@ -26,8 +28,8 @@ def recursive_microhomology(seq1: str, seq2: str) -> pd.DataFrame:
     for i in range(1, len(mh_matrix)):
         current_mask = mask_matrix[i]
         shifted_mask = np.append(current_mask[1:], False)
-        mask_matrix[i, current_mask] = mask_matrix[i - 1, shifted_mask] + 1
-        mask_matrix[i - 1, shifted_mask] = 0
+        mh_matrix[i, current_mask] = mh_matrix[i - 1, shifted_mask] + 1
+        mh_matrix[i - 1, shifted_mask] = 0
 
     rows, cols = np.nonzero(mh_matrix)
 
@@ -45,13 +47,16 @@ def check_microhomology_of_two_strands_of_cpcdh_exons(cfg: dict):
             for chrom, start, end, name in zip(
                 df["chrom"], df["start"], df["end"], df["name"]
             ):
-                seq1 = tb.sequence(chrom, start, end)
-                seq2 = Seq(seq1).reverse_complement()
+                seq1 = tb.sequence(chrom, start, end).upper()
+                seq2 = str(Seq(seq1).reverse_complement())
 
-                df = recursive_microhomology(seq1, seq2)
+                df_mh = recursive_microhomology(seq1, seq2)
+                df_mh = df_mh.query("mh >= @cfg['explore']['min_mh']").reset_index(
+                    drop=True
+                )
                 xs = []
                 ys = []
-                for row, col, mh in df.itertuples(index=False):
+                for row, col, mh in df_mh.itertuples(index=False):
                     xs.extend([col - mh, col, None])
                     ys.extend([row - mh, row, None])
 
@@ -66,7 +71,23 @@ def check_microhomology_of_two_strands_of_cpcdh_exons(cfg: dict):
                         "x": "crick",
                         "y": "watson",
                     },
+                    width=800,
+                    height=800,
                 )
+                fig.update_xaxes(
+                    side="top",
+                    range=[0, len(seq2)],
+                    constrain="domain",
+                )
+                fig.update_yaxes(
+                    scaleanchor="x",
+                    scaleratio=1,
+                    range=[len(seq1), 0],
+                    constrain="domain",
+                )
+                fig.update_traces(line_width=0.5)
 
                 (cfg["data_dir"] / "explore").mkdir(exist_ok=True, parents=True)
                 fig.write_image(cfg["data_dir"] / "explore" / f"{name}.pdf")
+
+                yield cfg["data_dir"] / "explore" / f"{name}.pdf"
