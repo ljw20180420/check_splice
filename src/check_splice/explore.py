@@ -71,6 +71,7 @@ def check_microhomology_of_two_strands_of_cpcdh_exons(cfg: dict):
                         "x": "crick",
                         "y": "watson",
                     },
+                    title=f"{assemble}:{name}",
                     width=800,
                     height=800,
                 )
@@ -88,6 +89,6 @@ def check_microhomology_of_two_strands_of_cpcdh_exons(cfg: dict):
                 fig.update_traces(line_width=0.5)
 
                 (cfg["data_dir"] / "explore").mkdir(exist_ok=True, parents=True)
-                fig.write_image(cfg["data_dir"] / "explore" / f"{name}.pdf")
+                fig.write_image(cfg["data_dir"] / "explore" / f"{assemble}_{name}.pdf")
 
-                yield cfg["data_dir"] / "explore" / f"{name}.pdf"
+                yield cfg["data_dir"] / "explore" / f"{assemble}_{name}.pdf"
